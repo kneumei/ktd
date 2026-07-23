@@ -1,85 +1,63 @@
-// Package ai is a minimal hand-written Anthropic Messages API client
-// (net/http, no SDK) — this project is a small dependency-light CLI, so a
-// full SDK would be overkill for the handful of forced-tool-use calls it
-// makes. See parse.go for the specific operations (ParseAdd, ParseEdit,
-// DraftWeekly).
+// Package ai wraps the official Anthropic Go SDK for the handful of
+// forced-tool-use calls this CLI makes. See parse.go for the specific
+// operations (ParseAdd, ParseEdit, DraftWeekly).
 package ai
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"time"
+
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
-const (
-	apiURL       = "https://api.anthropic.com/v1/messages"
-	anthropicVer = "2023-06-01"
-	// Model is Claude Haiku 4.5 — cheap and fast, appropriate for the small
-	// structured-extraction tasks this CLI asks of it.
-	Model = "claude-haiku-4-5"
-)
+// Model is Claude Haiku 4.5 — cheap and fast, appropriate for the small
+// structured-extraction tasks this CLI asks of it.
+const Model = "claude-haiku-4-5"
 
-// Client is a minimal Anthropic Messages API client.
+// Client wraps the Anthropic SDK client.
 type Client struct {
-	APIKey     string
-	HTTPClient *http.Client
+	sdk anthropic.Client
 }
 
-// NewClient returns a Client with a sane request timeout.
+// NewClient returns a Client authenticated with apiKey. The SDK applies
+// its own default timeout and automatic retries on 429/5xx.
 func NewClient(apiKey string) *Client {
-	return &Client{
-		APIKey:     apiKey,
-		HTTPClient: &http.Client{Timeout: 30 * time.Second},
-	}
+	return &Client{sdk: anthropic.NewClient(option.WithAPIKey(apiKey))}
 }
 
-type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
+// tool describes a single forced-tool-use tool: a name, description, and
+// JSON schema with keys "type", "properties", "required", and
+// "additionalProperties", matching the shape every parse.go operation
+// builds by hand.
 type tool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"input_schema"`
+	Name        string
+	Description string
+	InputSchema map[string]any
 }
 
-type toolChoice struct {
-	Type string `json:"type"`
-	Name string `json:"name,omitempty"`
-}
+// toToolParam converts the local tool description into the SDK's typed
+// tool param.
+func (t tool) toToolParam() anthropic.ToolUnionParam {
+	schema := anthropic.ToolInputSchemaParam{}
+	if props, ok := t.InputSchema["properties"]; ok {
+		schema.Properties = props
+	}
+	if required, ok := t.InputSchema["required"].([]string); ok {
+		schema.Required = required
+	}
+	if addl, ok := t.InputSchema["additionalProperties"]; ok {
+		schema.ExtraFields = map[string]any{"additionalProperties": addl}
+	}
 
-type messagesRequest struct {
-	Model      string      `json:"model"`
-	MaxTokens  int         `json:"max_tokens"`
-	System     string      `json:"system,omitempty"`
-	Messages   []message   `json:"messages"`
-	Tools      []tool      `json:"tools,omitempty"`
-	ToolChoice *toolChoice `json:"tool_choice,omitempty"`
-}
-
-type contentBlock struct {
-	Type  string          `json:"type"`
-	Text  string          `json:"text,omitempty"`
-	ID    string          `json:"id,omitempty"`
-	Name  string          `json:"name,omitempty"`
-	Input json.RawMessage `json:"input,omitempty"`
-}
-
-type messagesResponse struct {
-	Content    []contentBlock `json:"content"`
-	StopReason string         `json:"stop_reason"`
-}
-
-type apiErrorResponse struct {
-	Error struct {
-		Type    string `json:"type"`
-		Message string `json:"message"`
-	} `json:"error"`
+	return anthropic.ToolUnionParam{
+		OfTool: &anthropic.ToolParam{
+			Name:        t.Name,
+			Description: anthropic.String(t.Description),
+			InputSchema: schema,
+		},
+	}
 }
 
 // CallTool sends a single user-turn message with a forced tool_choice and
@@ -88,58 +66,27 @@ type apiErrorResponse struct {
 // tool schema per operation, forced, so the response is deterministic
 // JSON rather than free text that needs to be scraped out of a text block.
 func (c *Client) CallTool(ctx context.Context, system, userText string, t tool) (json.RawMessage, error) {
-	reqBody := messagesRequest{
-		Model:     Model,
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(Model),
 		MaxTokens: 1024,
-		System:    system,
-		Messages:  []message{{Role: "user", Content: userText}},
-		Tools:     []tool{t},
-		ToolChoice: &toolChoice{
-			Type: "tool",
-			Name: t.Name,
+		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(userText))},
+		Tools:     []anthropic.ToolUnionParam{t.toToolParam()},
+		ToolChoice: anthropic.ToolChoiceUnionParam{
+			OfTool: &anthropic.ToolChoiceToolParam{Name: t.Name},
 		},
 	}
-
-	payload, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
+	if system != "" {
+		params.System = []anthropic.TextBlockParam{{Text: system}}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("building request: %w", err)
-	}
-	req.Header.Set("content-type", "application/json")
-	req.Header.Set("x-api-key", c.APIKey)
-	req.Header.Set("anthropic-version", anthropicVer)
-
-	resp, err := c.HTTPClient.Do(req)
+	msg, err := c.sdk.Messages.New(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("calling Anthropic API: %w", err)
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		var apiErr apiErrorResponse
-		if jsonErr := json.Unmarshal(body, &apiErr); jsonErr == nil && apiErr.Error.Message != "" {
-			return nil, fmt.Errorf("anthropic API error (%s, HTTP %d): %s", apiErr.Error.Type, resp.StatusCode, apiErr.Error.Message)
-		}
-		return nil, fmt.Errorf("anthropic API error: HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	var msg messagesResponse
-	if err := json.Unmarshal(body, &msg); err != nil {
-		return nil, fmt.Errorf("parsing response: %w", err)
-	}
 
 	for _, block := range msg.Content {
-		if block.Type == "tool_use" && block.Name == t.Name {
-			return block.Input, nil
+		if variant, ok := block.AsAny().(anthropic.ToolUseBlock); ok && variant.Name == t.Name {
+			return variant.Input, nil
 		}
 	}
 	return nil, fmt.Errorf("no tool_use block for %q in response (stop_reason=%s)", t.Name, msg.StopReason)

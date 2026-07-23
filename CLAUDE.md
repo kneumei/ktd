@@ -12,10 +12,10 @@ init`/`add`/`commit`/`push` shelled out to directly, not a git library).
 ## Build / run / check
 
 ```
-go build ./...          # compile everything
-go build -o ktd.exe .   # produce the ktd binary (see cmd/ktd)
+go build ./...             # compile everything
+go build -o ktd.exe ./cmd/ktd  # produce the ktd binary
 go vet ./...
-go run ./cmd/ktd <args>  # run without building, e.g. go run ./cmd/ktd list
+go run ./cmd/ktd <args>     # run without building, e.g. go run ./cmd/ktd list
 ```
 
 There are no tests in the repo yet. If you add packages that warrant tests,
@@ -33,12 +33,14 @@ go run ./cmd/ktd list
 
 ## Architecture
 
-**Command dispatch** (`cmd/ktd/main.go`) is a hand-rolled switch over
-`os.Args[1]` — no flag/cobra library. Flags (`--name`, `--name=value`,
-boolean `--name`) are parsed by the local `parseArgs` helper, which — unlike
-the stdlib `flag` package — allows flags to appear anywhere in the argument
-list, not just before positionals (this matters for e.g.
-`ktd close 0002 --as-of 2026-07-23`).
+**Command dispatch** (`cmd/ktd/main.go`) uses
+[cobra](https://github.com/spf13/cobra) — a root command plus one
+`cobra.Command` per subcommand, each with its own flags (pflag's default
+`Interspersed` mode already allows flags anywhere in the argument list,
+not just before positionals, so e.g. `ktd close 0002 --as-of
+2026-07-23` works with no extra code). Shell completion is deliberately
+not wired up (`root.CompletionOptions.DisableDefaultCmd = true`) — it was
+tried and dropped as not useful enough to maintain.
 
 **Two classes of subcommand**, per the doc comment at the top of `main.go`:
 - *Mechanical* (`list`, `close`, `context`, `sync`): pure, instant,
@@ -71,10 +73,9 @@ Package layout (`internal/`):
   digits) first, then case-insensitive substring match against title,
   categories, and body. Never guesses on ambiguity — returns candidates for
   the caller to print and bail out on instead.
-- **`ai`** — a minimal hand-written Anthropic Messages API client
-  (`net/http`, no SDK — deliberate, to keep this a dependency-light CLI).
-  `client.go` has the one HTTP call primitive (`CallTool`, forced
-  `tool_choice`); `parse.go` has the three actual operations (`ParseAdd`,
+- **`ai`** — wraps the official `anthropic-sdk-go` client. `client.go` has
+  the one call primitive (`CallTool`, forced `tool_choice`, built on
+  `sdk.Messages.New`); `parse.go` has the three actual operations (`ParseAdd`,
   `ParseEdit`, `DraftWeekly`) plus deterministic (non-AI) URL extraction via
   `ExtractLinks`, which is always run before handing text to the AI so links
   don't clutter the classification prompt. Model is Claude Haiku 4.5
