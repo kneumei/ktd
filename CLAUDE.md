@@ -96,6 +96,11 @@ title/slug changed). Frontmatter fields: `id`, `title`, `status`
 weekly`), `links` (one per line). Body is freeform markdown; an optional
 trailing `## Log` section holds dated progress bullets.
 
+## Git workflow
+
+Commit directly to `main` by default. Don't create a feature branch or open
+a PR for routine commits — only do that if explicitly asked to.
+
 ## Conventions worth knowing
 
 - The Anthropic API key env var is `KTD_ANTHROPIC_API_KEY`, deliberately not
