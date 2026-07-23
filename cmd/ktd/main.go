@@ -1,5 +1,5 @@
 // Command ktd is a fast, native CLI for a personal work-todo tracker.
-// Mechanical subcommands (list, close, context, sync, import) are pure and
+// Mechanical subcommands (list, close, context, sync) are pure and
 // instant; fuzzy subcommands (add, done, edit, weekly) make a single
 // direct Anthropic API call to parse freeform input.
 package main
@@ -53,8 +53,6 @@ func main() {
 		runSync(s, args)
 	case "weekly":
 		runWeekly(ctx, s, args)
-	case "import":
-		runImport(s, args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", cmd)
 		printUsage()
@@ -164,15 +162,6 @@ func runWeekly(ctx context.Context, s *store.Store, args []string) {
 	}
 }
 
-func runImport(s *store.Store, args []string) {
-	if len(args) == 0 {
-		fatal(errors.New("usage: ktd import <old-todos-dir>"))
-	}
-	if err := commands.Import(s, args[0]); err != nil {
-		fatal(err)
-	}
-}
-
 // parseArgs scans args for known --name / --name=value / --name value flags
 // in any position (not just before positionals — unlike the stdlib flag
 // package, which stops parsing at the first non-flag argument, and would
@@ -238,7 +227,6 @@ Usage:
   ktd context <id|text>               Print full detail for one item
   ktd sync [--remote URL]             git add/commit/push the data dir
   ktd weekly [--week-of DATE]         Draft a Last/This weekly report (AI)
-  ktd import <old-todos-dir>          One-time migration from todo-list
 
 Flags may appear anywhere in the command (before or after positional args).
 
