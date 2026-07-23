@@ -6,4 +6,5 @@
 /ktd.exe
 /ktd
 dist/
+/testdata/
 testdata-import/
