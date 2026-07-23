@@ -26,7 +26,7 @@ func main() {
 }
 
 func fatal(err error) {
-	fmt.Fprintln(os.Stderr, "error:", err)
+	fmt.Fprintln(os.Stderr, "💥 error:", err)
 	os.Exit(1)
 }
 

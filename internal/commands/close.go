@@ -35,7 +35,7 @@ func Close(s *store.Store, query, asOf string) error {
 	}
 
 	if it.Todo.Status == "closed" {
-		fmt.Printf("%s is already closed (closed %s).\n", it.Todo.ID, it.Todo.Closed)
+		fmt.Printf("ℹ️  %s is already closed (closed %s).\n", it.Todo.ID, it.Todo.Closed)
 		return nil
 	}
 
@@ -45,7 +45,7 @@ func Close(s *store.Store, query, asOf string) error {
 		return err
 	}
 
-	fmt.Printf("Closed %s — %s (closed %s).\n", it.Todo.ID, it.Todo.Title, closedDate)
+	fmt.Printf("✅ Closed %s — %s (closed %s).\n", it.Todo.ID, it.Todo.Title, closedDate)
 	return nil
 }
 

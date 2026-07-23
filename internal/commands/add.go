@@ -45,13 +45,13 @@ func Add(ctx context.Context, s *store.Store, text string) error {
 	}
 
 	if !confirmItems("add", []*model.Todo{t}) {
-		fmt.Println("Aborted — nothing written.")
+		fmt.Println("❌ Aborted — nothing written.")
 		return nil
 	}
 
 	if err := s.Save(t); err != nil {
 		return err
 	}
-	fmt.Printf("Added %s — %s %s\n", t.ID, t.Title, formatCatsInline(t.Categories))
+	fmt.Printf("✨ Added %s — %s %s\n", t.ID, t.Title, formatCatsInline(t.Categories))
 	return nil
 }

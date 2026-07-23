@@ -17,17 +17,17 @@ import (
 func resolveOne(items []store.Item, query string, canon categories.CanonicalMap) (*store.Item, bool) {
 	res := resolve.Resolve(items, query)
 	if res.Match != nil {
-		fmt.Printf("%s — %s\n", res.Match.Todo.ID, res.Match.Todo.Title)
+		fmt.Printf("🎯 %s — %s\n", res.Match.Todo.ID, res.Match.Todo.Title)
 		return res.Match, true
 	}
 
 	if len(res.Candidates) == 0 {
-		fmt.Printf("No item matches %q.\n", query)
+		fmt.Printf("❌ No item matches %q.\n", query)
 		printClosestOpen(items, canon)
 		return nil, false
 	}
 
-	fmt.Printf("Multiple items match %q — re-run with a tighter match:\n", query)
+	fmt.Printf("🔀 Multiple items match %q — re-run with a tighter match:\n", query)
 	for _, c := range res.Candidates {
 		fmt.Println("  " + formatCandidate(c.Todo, canon))
 	}
@@ -54,7 +54,7 @@ func printClosestOpen(items []store.Item, canon categories.CanonicalMap) {
 	if n == 0 {
 		return
 	}
-	fmt.Println("Closest open items:")
+	fmt.Println("📌 Closest open items:")
 	for _, it := range open[:n] {
 		fmt.Println("  " + formatCandidate(it.Todo, canon))
 	}

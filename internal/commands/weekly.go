@@ -89,7 +89,7 @@ func Weekly(ctx context.Context, s *store.Store, weekOf string) error {
 		return fmt.Errorf("asking the AI to draft the report: %w", err)
 	}
 
-	fmt.Printf("Week of %s – %s\n\n", monday.Format("2006-01-02"), sunday.Format("2006-01-02"))
+	fmt.Printf("📅 Week of %s – %s\n\n", monday.Format("2006-01-02"), sunday.Format("2006-01-02"))
 	fmt.Println(result.Markdown)
 	return nil
 }

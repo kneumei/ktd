@@ -82,26 +82,26 @@ func Edit(ctx context.Context, s *store.Store, query, change string) error {
 		}
 	}
 
-	fmt.Printf("Proposed edit to %s — %s:\n", it.Todo.ID, it.Todo.Title)
+	fmt.Printf("✏️  Proposed edit to %s — %s:\n", it.Todo.ID, it.Todo.Title)
 	if summary != "" {
 		fmt.Println("  " + summary)
 	}
 	if len(links) > 0 {
-		fmt.Println("  add link(s):")
+		fmt.Println("  🔗 add link(s):")
 		for _, l := range links {
 			fmt.Println("    - " + l)
 		}
 	}
-	fmt.Print("Apply? [y/N] ")
+	fmt.Print("💾 Apply? [y/N] ")
 	if !readYesNo() {
-		fmt.Println("Aborted — nothing changed.")
+		fmt.Println("❌ Aborted — nothing changed.")
 		return nil
 	}
 
 	if err := s.Save(&proposed); err != nil {
 		return err
 	}
-	fmt.Println("Updated.")
+	fmt.Println("✅ Updated.")
 	return nil
 }
 

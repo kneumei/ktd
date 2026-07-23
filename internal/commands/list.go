@@ -98,7 +98,7 @@ func listSince(items []store.Item, opts ListOptions, canon categories.CanonicalM
 	}
 
 	if len(closed) == 0 {
-		fmt.Printf("No items closed in the last %d days.\n", opts.Since)
+		fmt.Printf("🤷 No items closed in the last %d days.\n", opts.Since)
 		return nil
 	}
 
@@ -118,11 +118,11 @@ func listSince(items []store.Item, opts ListOptions, canon categories.CanonicalM
 		id := colorize(useColor, colorDarkGray, c.it.Todo.ID)
 		title := c.it.Todo.Title
 		catStr := colorize(useColor, colorDarkGray, canon.FormatList(c.it.Todo.Categories))
-		closedNote := colorize(useColor, colorCyan, fmt.Sprintf("closed %s (%dd ago)", c.it.Todo.Closed, c.daysAgo))
+		closedNote := colorize(useColor, colorCyan, fmt.Sprintf("✅ closed %s (%dd ago)", c.it.Todo.Closed, c.daysAgo))
 		fmt.Printf("%s  %s  %s  %s\n", id, title, catStr, closedNote)
 	}
 	fmt.Println()
-	fmt.Println(colorize(useColor, colorGray, fmt.Sprintf("Total: %d item(s) closed in the last %d days.", len(closed), opts.Since)))
+	fmt.Println(colorize(useColor, colorGray, fmt.Sprintf("📊 Total: %d item(s) closed in the last %d days.", len(closed), opts.Since)))
 	return nil
 }
 
@@ -184,7 +184,7 @@ func listNormal(items []store.Item, opts ListOptions, canon categories.Canonical
 	} else {
 		footer += "item(s)"
 	}
-	fmt.Println(colorize(useColor, colorGray, footer))
+	fmt.Println(colorize(useColor, colorGray, "📊 "+footer))
 	return nil
 }
 
@@ -220,7 +220,7 @@ func listByCategory(items []store.Item, canon categories.CanonicalMap, useColor,
 	for _, name := range names {
 		group := groups[name]
 		sort.Slice(group, func(i, j int) bool { return group[i].Todo.ID < group[j].Todo.ID })
-		fmt.Println(colorize(useColor, colorCyan, "## "+name))
+		fmt.Println(colorize(useColor, colorCyan, "📁 "+name))
 		for _, it := range group {
 			if detail {
 				writeItemVerbose(it.Todo, canon, useColor, titleMatched[it.Todo.ID], today)
@@ -238,7 +238,7 @@ func writeItem(t *model.Todo, canon categories.CanonicalMap, useColor, matched, 
 	prefix := ""
 	titleColor := ""
 	if t.Status == "closed" {
-		prefix = "[x] "
+		prefix = "✅ "
 		titleColor = colorDarkGray
 	} else if matched {
 		titleColor = colorYellow
@@ -255,7 +255,7 @@ func writeItem(t *model.Todo, canon categories.CanonicalMap, useColor, matched, 
 		line += colorize(useColor, colorDarkGray, "closed "+t.Closed)
 	} else {
 		age := ageDays(t, today)
-		line += colorize(useColor, ageColor(age), fmt.Sprintf("(%dd)", age))
+		line += colorize(useColor, ageColor(age), fmt.Sprintf("%s (%dd)", ageEmoji(age), age))
 	}
 	fmt.Println(line)
 }
@@ -268,29 +268,29 @@ func writeItemVerbose(t *model.Todo, canon categories.CanonicalMap, useColor, ma
 	fmt.Printf("%s  %s\n", colorize(useColor, colorDarkGray, t.ID), title)
 
 	if t.Status == "closed" {
-		note := "closed " + t.Closed
+		note := "✅ closed " + t.Closed
 		if d, err := time.Parse("2006-01-02", t.Closed); err == nil {
 			note += fmt.Sprintf(" (%dd ago)", int(today.Sub(d).Hours()/24))
 		}
-		fmt.Println("  Status:   " + colorize(useColor, colorDarkGray, note))
+		fmt.Println("  📌 Status:   " + colorize(useColor, colorDarkGray, note))
 	} else {
 		age := ageDays(t, today)
-		fmt.Printf("  Status:   %s\n", colorize(useColor, ageColor(age), fmt.Sprintf("open (%dd)", age)))
+		fmt.Printf("  📌 Status:   %s\n", colorize(useColor, ageColor(age), fmt.Sprintf("%s open (%dd)", ageEmoji(age), age)))
 	}
-	fmt.Println("  Categories: " + canon.FormatList(t.Categories))
-	fmt.Println("  Created:  " + t.Created)
+	fmt.Println("  🏷️  Categories: " + canon.FormatList(t.Categories))
+	fmt.Println("  📆 Created:  " + t.Created)
 	if len(t.Links) > 0 {
-		fmt.Println("  Links:")
+		fmt.Println("  🔗 Links:")
 		for _, l := range t.Links {
 			fmt.Println("    - " + colorize(useColor, colorCyan, l))
 		}
 	}
 	if strings.TrimSpace(t.Body) != "" {
-		fmt.Println("  Description:")
+		fmt.Println("  📄 Description:")
 		fmt.Println("    " + strings.ReplaceAll(t.Body, "\n", "\n    "))
 	}
 	if len(t.Log) > 0 {
-		fmt.Println("  Log:")
+		fmt.Println("  📜 Log:")
 		for _, e := range t.Log {
 			fmt.Printf("    - %s: %s\n", e.Date, e.Text)
 		}
@@ -314,6 +314,17 @@ func ageColor(age int) string {
 		return colorYellow
 	default:
 		return colorRed
+	}
+}
+
+func ageEmoji(age int) string {
+	switch {
+	case age <= freshDays:
+		return "🟢"
+	case age <= agingDays:
+		return "🟡"
+	default:
+		return "🔴"
 	}
 }
 

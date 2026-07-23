@@ -15,9 +15,9 @@ import (
 // confirm-before-write decision.
 func confirmItems(verb string, items []*model.Todo) bool {
 	if len(items) == 1 {
-		fmt.Printf("Proposed %s:\n", verb)
+		fmt.Printf("📝 Proposed %s:\n", verb)
 	} else {
-		fmt.Printf("Proposed %s (%d items):\n", verb, len(items))
+		fmt.Printf("📝 Proposed %s (%d items):\n", verb, len(items))
 	}
 	for _, t := range items {
 		fmt.Printf("  Title:      %s\n", t.Title)
@@ -32,7 +32,7 @@ func confirmItems(verb string, items []*model.Todo) bool {
 			fmt.Println()
 		}
 	}
-	fmt.Print("Write? [y/N] ")
+	fmt.Print("💾 Write? [y/N] ")
 	return readYesNo()
 }
 

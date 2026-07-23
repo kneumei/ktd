@@ -32,7 +32,7 @@ func Sync(s *store.Store, remote string) error {
 	}
 
 	if strings.TrimSpace(string(statusOut)) == "" {
-		fmt.Println("Nothing to sync — working tree clean.")
+		fmt.Println("✨ Nothing to sync — working tree clean.")
 	} else {
 		msg := "sync " + time.Now().Format("2006-01-02")
 		commitCmd := exec.Command("git", "commit", "-m", msg)
@@ -40,14 +40,14 @@ func Sync(s *store.Store, remote string) error {
 		if out, err := commitCmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("git commit: %w: %s", err, out)
 		}
-		fmt.Println("Committed: " + msg)
+		fmt.Println("💾 Committed: " + msg)
 	}
 
 	remoteCmd := exec.Command("git", "remote")
 	remoteCmd.Dir = s.Dir
 	remotesOut, _ := remoteCmd.Output()
 	if strings.TrimSpace(string(remotesOut)) == "" {
-		fmt.Println("No remote configured — skipping push. Use `ktd sync --remote <url>` to set one.")
+		fmt.Println("⚠️  No remote configured — skipping push. Use `ktd sync --remote <url>` to set one.")
 		return nil
 	}
 
@@ -56,7 +56,7 @@ func Sync(s *store.Store, remote string) error {
 	if out, err := pushCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git push: %w: %s", err, out)
 	}
-	fmt.Println("Pushed.")
+	fmt.Println("⬆️  Pushed.")
 	return nil
 }
 

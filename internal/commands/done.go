@@ -70,12 +70,12 @@ func Done(ctx context.Context, s *store.Store, text, asOf string) error {
 	}
 
 	if len(todos) == 0 {
-		fmt.Println("Nothing to do — no non-blank lines in input.")
+		fmt.Println("🤷 Nothing to do — no non-blank lines in input.")
 		return nil
 	}
 
 	if !confirmItems("done", todos) {
-		fmt.Println("Aborted — nothing written.")
+		fmt.Println("❌ Aborted — nothing written.")
 		return nil
 	}
 
@@ -87,7 +87,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string) error {
 		ids = append(ids, fmt.Sprintf("%s — %s", t.ID, t.Title))
 	}
 
-	fmt.Printf("Closed %d item(s) as of %s:\n", len(todos), closedDate)
+	fmt.Printf("✅ Closed %d item(s) as of %s:\n", len(todos), closedDate)
 	for _, line := range ids {
 		fmt.Println("  " + line)
 	}
