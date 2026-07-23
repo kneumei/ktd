@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 10
