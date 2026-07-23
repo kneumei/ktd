@@ -1,0 +1,9 @@
+.env*
+*.env*
+*~
+*.swp
+*.un~
+/ktd.exe
+/ktd
+dist/
+testdata-import/
