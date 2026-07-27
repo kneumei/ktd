@@ -200,6 +200,7 @@ func newSyncCmd() *cobra.Command {
 
 func newWeeklyCmd() *cobra.Command {
 	var weekOf string
+	var noColor bool
 	cmd := &cobra.Command{
 		Use:   "weekly",
 		Short: "Draft a Last/This weekly report (AI)",
@@ -209,9 +210,10 @@ func newWeeklyCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return commands.Weekly(cmd.Context(), s, weekOf)
+			return commands.Weekly(cmd.Context(), s, weekOf, noColor)
 		},
 	}
 	cmd.Flags().StringVar(&weekOf, "week-of", "", "draft for the week containing this date (YYYY-MM-DD)")
+	cmd.Flags().BoolVar(&noColor, "no-color", false, "disable ANSI bold output (plain markdown asterisks)")
 	return cmd
 }

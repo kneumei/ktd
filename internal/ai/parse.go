@@ -162,48 +162,74 @@ func ParseEdit(ctx context.Context, c *Client, existingCategories []string, text
 	return result, nil
 }
 
-// WeeklyResult holds the drafted "Last"/"This" markdown report body for
-// `ktd weekly`.
-type WeeklyResult struct {
-	Markdown string `json:"markdown"`
+// WeeklyItemSummary is the AI's distilled one-line summary of a single
+// candidate item for the Last or This section of the weekly report.
+// Category grouping and layout are deliberately not the AI's job — they're
+// done mechanically by the caller from each item's actual categories, the
+// same way `ktd list` groups by category, since that's data the AI would
+// otherwise have to (unreliably) echo back correctly.
+type WeeklyItemSummary struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+	Link string `json:"link"`
 }
 
-const weeklySystemPrompt = `You draft a weekly status report from a personal work-todo tracker, formatted for pasting as rich text into email/docs.
+// WeeklyResult holds the AI-summarized candidate items for both sections
+// of `ktd weekly`.
+type WeeklyResult struct {
+	Last []WeeklyItemSummary `json:"last"`
+	This []WeeklyItemSummary `json:"this"`
+}
 
-Output two sections, "Last" and "This", each with items grouped under bold theme headers (categories), and uncategorized items as standalone top-level bullets:
+const weeklySystemPrompt = `You help draft a weekly status report from a personal work-todo tracker. You're given candidate items for "Last" (recently completed or active work) and "This" (upcoming work), each prefixed with "id=", and possibly a "body:"/"log" detail lines with the actual substance of what happened.
 
-**Last**
-**<Theme>**
-- <item line>
+For each item worth reporting, distill it to:
+- "id": copied exactly from the input.
+- "text": a short "<name for the task/project> — <what happened or what's planned>" line, drawing on the body/log detail if present. Not a full sentence, no trailing period.
+- "link": the item's most useful URL, only if one was given and it adds real value; omit otherwise.
 
-**This**
-**<Theme>**
-- <item line>
-
-Only "Last"/"This" are bold at the top level; theme names are bold sub-headers. Use "-" bullet lists. One tight line per item; include a link inline only if it adds value. Keep it scannable, not exhaustive.
+Do not group or categorize — just list distilled items per section, in the order given. Omit trivial or redundant items; keep each section scannable, not exhaustive.
 
 Respond only via the draft_weekly tool.`
 
+var weeklyItemSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"id":   map[string]any{"type": "string", "description": "The item's id, copied exactly as given in the input."},
+		"text": map[string]any{"type": "string", "description": "Short distilled summary line for the item."},
+		"link": map[string]any{"type": "string", "description": "The item's most useful URL, if any adds value."},
+	},
+	"required":             []string{"id", "text"},
+	"additionalProperties": false,
+}
+
 var weeklyTool = tool{
 	Name:        "draft_weekly",
-	Description: "Provide the drafted Last/This weekly report as markdown.",
+	Description: "Provide distilled Last/This item summaries for the weekly report.",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"markdown": map[string]any{
-				"type":        "string",
-				"description": "The full Last/This report body, in the format described in the system prompt.",
+			"last": map[string]any{
+				"type":        "array",
+				"items":       weeklyItemSchema,
+				"description": "Distilled summaries for the Last section.",
+			},
+			"this": map[string]any{
+				"type":        "array",
+				"items":       weeklyItemSchema,
+				"description": "Distilled summaries for the This section.",
 			},
 		},
-		"required":             []string{"markdown"},
+		"required":             []string{"last", "this"},
 		"additionalProperties": false,
 	},
 }
 
-// DraftWeekly drafts the Last/This markdown report body given a plain-text
-// summary of the relevant items (closed-this-week items and open items
-// with in-week log activity, plus open items favoring plan:this-week for
-// the This section). Callers assemble that summary text from the store.
+// DraftWeekly distills the Last/This candidate items into short summary
+// lines given a plain-text summary of the relevant items (closed-this-week
+// items and open items with in-week log activity, plus open items
+// favoring plan:this-week for the This section). Callers assemble that
+// summary text from the store and do the category grouping themselves.
 func DraftWeekly(ctx context.Context, c *Client, itemsSummary string) (WeeklyResult, error) {
 	raw, err := c.CallTool(ctx, weeklySystemPrompt, itemsSummary, weeklyTool)
 	if err != nil {

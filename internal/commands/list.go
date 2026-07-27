@@ -23,6 +23,7 @@ const (
 // ANSI color codes. See useColor below for when these are actually applied.
 const (
 	colorReset    = "\033[0m"
+	colorBold     = "\033[1m"
 	colorDarkGray = "\033[90m"
 	colorGray     = "\033[37m"
 	colorCyan     = "\033[36m"
