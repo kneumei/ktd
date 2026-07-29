@@ -52,8 +52,9 @@ func Edit(ctx context.Context, s *store.Store, query, change string) error {
 		}
 		client := ai.NewClient(apiKey)
 		existingCats := store.AllCategories(items)
+		today := time.Now().Format("2006-01-02")
 
-		result, err := ai.ParseEdit(ctx, client, existingCats, remainder)
+		result, err := ai.ParseEdit(ctx, client, existingCats, today, remainder)
 		if err != nil {
 			return fmt.Errorf("asking the AI to classify the change: %w", err)
 		}
@@ -64,7 +65,10 @@ func Edit(ctx context.Context, s *store.Store, query, change string) error {
 			if text == "" {
 				text = remainder
 			}
-			date := time.Now().Format("2006-01-02")
+			date := today
+			if v := validAIDate(result.Date); v != "" {
+				date = v
+			}
 			proposed.Log = append(append([]model.LogEntry{}, it.Todo.Log...), model.LogEntry{Date: date, Text: text})
 			summary = fmt.Sprintf("append log note (%s): %s", date, text)
 		case ai.ClassificationBodyAddition:
@@ -77,6 +81,14 @@ func Edit(ctx context.Context, s *store.Store, query, change string) error {
 		case ai.ClassificationCategoryChange:
 			proposed.Categories = applyCategoryChange(it.Todo.Categories, result.CategoriesAdd, result.CategoriesRemove)
 			summary = "categories -> " + formatCatsInline(proposed.Categories)
+		case ai.ClassificationCloseItem:
+			date := today
+			if v := validAIDate(result.Date); v != "" {
+				date = v
+			}
+			proposed.Status = "closed"
+			proposed.Closed = date
+			summary = fmt.Sprintf("close as of %s", date)
 		default:
 			return fmt.Errorf("unrecognized AI classification %q", result.Classification)
 		}

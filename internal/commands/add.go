@@ -23,8 +23,9 @@ func Add(ctx context.Context, s *store.Store, text string) error {
 	items, _ := s.List()
 	existingCats := store.AllCategories(items)
 
+	today := time.Now().Format("2006-01-02")
 	links, remainder := ai.ExtractLinks(text)
-	result, err := ai.ParseAdd(ctx, client, existingCats, remainder)
+	result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder)
 	if err != nil {
 		return fmt.Errorf("asking the AI to parse the item: %w", err)
 	}
@@ -34,12 +35,17 @@ func Add(ctx context.Context, s *store.Store, text string) error {
 		return err
 	}
 
+	created := today
+	if v := validAIDate(result.Date); v != "" {
+		created = v
+	}
+
 	t := &model.Todo{
 		ID:         id,
 		Title:      result.Title,
 		Status:     "open",
 		Categories: result.Categories,
-		Created:    time.Now().Format("2006-01-02"),
+		Created:    created,
 		Links:      links,
 		Body:       remainder,
 	}

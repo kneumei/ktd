@@ -22,6 +22,10 @@ func confirmItems(verb string, items []*model.Todo) bool {
 	for _, t := range items {
 		fmt.Printf("  Title:      %s\n", t.Title)
 		fmt.Printf("  Categories: %s\n", formatCatsInline(t.Categories))
+		fmt.Printf("  Created:    %s\n", t.Created)
+		if t.Status == "closed" {
+			fmt.Printf("  Closed:     %s\n", t.Closed)
+		}
 		if len(t.Links) > 0 {
 			fmt.Println("  Links:")
 			for _, l := range t.Links {

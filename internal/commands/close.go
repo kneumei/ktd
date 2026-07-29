@@ -60,3 +60,15 @@ func resolveAsOfDate(asOf string) (string, error) {
 	}
 	return asOf, nil
 }
+
+// validAIDate returns d if it parses as YYYY-MM-DD, else "" — guards
+// against a malformed AI-extracted date silently corrupting a stored date.
+func validAIDate(d string) string {
+	if d == "" {
+		return ""
+	}
+	if _, err := time.Parse("2006-01-02", d); err != nil {
+		return ""
+	}
+	return d
+}

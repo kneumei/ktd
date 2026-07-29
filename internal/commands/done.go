@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"ktd/internal/ai"
 	"ktd/internal/model"
@@ -15,8 +16,10 @@ import (
 // text is treated as one closed item (so pasting several lines files
 // several items in one call, per the original SKILL.md behavior); a
 // single line is the common case. Every item gets both created and closed
-// set to the as-of date (else today), plus one seeded "## Log" bullet
-// dated the closed date.
+// set to the as-of date; --as-of, when given, applies to every line and
+// wins over anything in the text. Otherwise each line's own AI-extracted
+// date is used (e.g. "closed date is yesterday"), falling back to today.
+// Each item also gets one seeded "## Log" bullet dated the same date.
 func Done(ctx context.Context, s *store.Store, text, asOf string) error {
 	apiKey, err := s.APIKey()
 	if err != nil {
@@ -41,6 +44,8 @@ func Done(ctx context.Context, s *store.Store, text, asOf string) error {
 		return fmt.Errorf("parsing next id %q: %w", startID, err)
 	}
 
+	today := time.Now().Format("2006-01-02")
+
 	var todos []*model.Todo
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
@@ -49,9 +54,16 @@ func Done(ctx context.Context, s *store.Store, text, asOf string) error {
 		}
 
 		links, remainder := ai.ExtractLinks(line)
-		result, err := ai.ParseAdd(ctx, client, existingCats, remainder)
+		result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder)
 		if err != nil {
 			return fmt.Errorf("asking the AI to parse %q: %w", line, err)
+		}
+
+		itemDate := closedDate
+		if asOf == "" {
+			if v := validAIDate(result.Date); v != "" {
+				itemDate = v
+			}
 		}
 
 		t := &model.Todo{
@@ -59,11 +71,11 @@ func Done(ctx context.Context, s *store.Store, text, asOf string) error {
 			Title:      result.Title,
 			Status:     "closed",
 			Categories: result.Categories,
-			Created:    closedDate,
-			Closed:     closedDate,
+			Created:    itemDate,
+			Closed:     itemDate,
 			Links:      links,
 			Body:       remainder,
-			Log:        []model.LogEntry{{Date: closedDate, Text: result.Title}},
+			Log:        []model.LogEntry{{Date: itemDate, Text: result.Title}},
 		}
 		todos = append(todos, t)
 		nextIDNum++

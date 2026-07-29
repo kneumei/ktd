@@ -34,12 +34,14 @@ func ExtractLinks(text string) (links []string, remainder string) {
 type AddResult struct {
 	Title      string   `json:"title"`
 	Categories []string `json:"categories"`
+	Date       string   `json:"date"`
 }
 
 const addSystemPrompt = `You help maintain a personal work-todo tracker. Given freeform text describing a task, distill:
 
 - "title": a short, punchy headline (not a full sentence) that names the task.
 - "categories": zero or more freeform theme tags that apply, inferred only from what the text implies — never invent a category with no basis in the text. When an existing category clearly applies, reuse its exact casing rather than creating a near-duplicate.
+- "date": only if the text explicitly states a date the item applies to (absolute like "2026-07-25", or relative like "yesterday", "last Monday"), resolve it to YYYY-MM-DD using today's date, which is %s. Omit this field entirely if no date is stated. Never leave the resolved date sitting inside "title" — strip it out.
 
 Existing categories in use: %s
 
@@ -60,17 +62,23 @@ var addTool = tool{
 				"items":       map[string]any{"type": "string"},
 				"description": "Zero or more category tags implied by the text.",
 			},
+			"date": map[string]any{
+				"type":        "string",
+				"description": "Only if the text explicitly states a date (absolute or relative), resolved to YYYY-MM-DD. Omit otherwise.",
+			},
 		},
 		"required":             []string{"title", "categories"},
 		"additionalProperties": false,
 	},
 }
 
-// ParseAdd distills a title and categories from freeform input text for
-// `ktd add` / `ktd done`. Callers should run ExtractLinks first and pass
-// the link-stripped remainder as text.
-func ParseAdd(ctx context.Context, c *Client, existingCategories []string, text string) (AddResult, error) {
-	system := fmt.Sprintf(addSystemPrompt, formatCategoryList(existingCategories))
+// ParseAdd distills a title, categories, and an optional as-of date from
+// freeform input text for `ktd add` / `ktd done`. today is passed as
+// YYYY-MM-DD so the AI can resolve relative dates like "yesterday".
+// Callers should run ExtractLinks first and pass the link-stripped
+// remainder as text.
+func ParseAdd(ctx context.Context, c *Client, existingCategories []string, today, text string) (AddResult, error) {
+	system := fmt.Sprintf(addSystemPrompt, today, formatCategoryList(existingCategories))
 	raw, err := c.CallTool(ctx, system, text, addTool)
 	if err != nil {
 		return AddResult{}, err
@@ -89,17 +97,20 @@ const (
 	ClassificationLogNote        EditClassification = "log_note"
 	ClassificationBodyAddition   EditClassification = "body_addition"
 	ClassificationCategoryChange EditClassification = "category_change"
+	ClassificationCloseItem      EditClassification = "close_item"
 )
 
 // EditResult is the AI classification of a freeform `ktd edit` change.
 // Exactly the fields relevant to Classification are meaningful; the rest
-// are zero values.
+// are zero values. Date is populated for log_note and close_item when the
+// text explicitly states an as-of date.
 type EditResult struct {
 	Classification   EditClassification `json:"classification"`
 	LogText          string             `json:"log_text"`
 	BodyAddition     string             `json:"body_addition"`
 	CategoriesAdd    []string           `json:"categories_add"`
 	CategoriesRemove []string           `json:"categories_remove"`
+	Date             string             `json:"date"`
 }
 
 const editSystemPrompt = `You help maintain a personal work-todo tracker. Given a change a user wants to apply to an existing item, classify it as exactly one of:
@@ -107,6 +118,9 @@ const editSystemPrompt = `You help maintain a personal work-todo tracker. Given 
 - "log_note": a progress update ("worked on X", "did Y today") — write a concise version to log_text.
 - "body_addition": more description or context to append to the item — write it to body_addition.
 - "category_change": the user wants to add and/or remove category tags — list them in categories_add / categories_remove, reusing existing casing where an existing category applies.
+- "close_item": the user wants to mark the item closed/done, e.g. "close it", "mark this done", "close date is yesterday" — no log_text/body_addition needed.
+
+For log_note and close_item, if the text explicitly states a date the work/close applies to (absolute like "2026-07-25", or relative like "yesterday", "last Monday"), resolve it to YYYY-MM-DD in "date" using today's date, which is %s. Omit "date" if none is stated. Never leave the resolved date sitting inside log_text.
 
 Existing categories in use: %s
 
@@ -120,7 +134,7 @@ var editTool = tool{
 		"properties": map[string]any{
 			"classification": map[string]any{
 				"type": "string",
-				"enum": []string{"log_note", "body_addition", "category_change"},
+				"enum": []string{"log_note", "body_addition", "category_change", "close_item"},
 			},
 			"log_text": map[string]any{
 				"type":        "string",
@@ -140,17 +154,23 @@ var editTool = tool{
 				"items":       map[string]any{"type": "string"},
 				"description": "Only when classification is category_change.",
 			},
+			"date": map[string]any{
+				"type":        "string",
+				"description": "Only when classification is log_note or close_item, and the text states an explicit date. Resolved to YYYY-MM-DD.",
+			},
 		},
 		"required":             []string{"classification"},
 		"additionalProperties": false,
 	},
 }
 
-// ParseEdit classifies a freeform `ktd edit` change. Callers should run
-// ExtractLinks first and append any found links to the item directly
-// (mechanically) rather than relying on this classification for links.
-func ParseEdit(ctx context.Context, c *Client, existingCategories []string, text string) (EditResult, error) {
-	system := fmt.Sprintf(editSystemPrompt, formatCategoryList(existingCategories))
+// ParseEdit classifies a freeform `ktd edit` change. today is passed as
+// YYYY-MM-DD so the AI can resolve relative dates like "yesterday".
+// Callers should run ExtractLinks first and append any found links to the
+// item directly (mechanically) rather than relying on this classification
+// for links.
+func ParseEdit(ctx context.Context, c *Client, existingCategories []string, today, text string) (EditResult, error) {
+	system := fmt.Sprintf(editSystemPrompt, today, formatCategoryList(existingCategories))
 	raw, err := c.CallTool(ctx, system, text, editTool)
 	if err != nil {
 		return EditResult{}, err
