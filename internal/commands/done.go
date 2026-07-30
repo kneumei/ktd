@@ -20,7 +20,7 @@ import (
 // wins over anything in the text. Otherwise each line's own AI-extracted
 // date is used (e.g. "closed date is yesterday"), falling back to today.
 // Each item also gets one seeded "## Log" bullet dated the same date.
-func Done(ctx context.Context, s *store.Store, text, asOf string) error {
+func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) error {
 	apiKey, err := s.APIKey()
 	if err != nil {
 		return err
@@ -54,7 +54,8 @@ func Done(ctx context.Context, s *store.Store, text, asOf string) error {
 		}
 
 		links, remainder := ai.ExtractLinks(line)
-		result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder)
+		reference := buildReference(ctx, links, noFetch)
+		result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder, reference)
 		if err != nil {
 			return fmt.Errorf("asking the AI to parse %q: %w", line, err)
 		}
@@ -66,6 +67,11 @@ func Done(ctx context.Context, s *store.Store, text, asOf string) error {
 			}
 		}
 
+		body := remainder
+		if result.Body != "" {
+			body = result.Body
+		}
+
 		t := &model.Todo{
 			ID:         fmt.Sprintf("%04d", nextIDNum),
 			Title:      result.Title,
@@ -74,7 +80,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string) error {
 			Created:    itemDate,
 			Closed:     itemDate,
 			Links:      links,
-			Body:       remainder,
+			Body:       body,
 			Log:        []model.LogEntry{{Date: itemDate, Text: result.Title}},
 		}
 		todos = append(todos, t)

@@ -9,14 +9,23 @@ import (
 
 	"ktd/internal/ai"
 	"ktd/internal/categories"
+	"ktd/internal/github"
 	"ktd/internal/model"
 	"ktd/internal/store"
 )
 
+// noInstructionPlaceholder is passed to ParseEdit in place of an empty
+// remainder when the user attached a GitHub link with no other words —
+// it tells the model explicitly that summarizing the reference is the
+// only job, rather than handing it a blank user message.
+const noInstructionPlaceholder = "(no instruction — summarize the referenced GitHub item(s) as a concise log note)"
+
 // Edit runs `ktd edit <id|text> <change>`: resolve the item mechanically,
 // pull out any URLs deterministically, then ask the AI to classify the
-// remaining text as a log note, a body addition, or a category change.
-func Edit(ctx context.Context, s *store.Store, query, change string) error {
+// remaining text as a log note, a body addition, a category change, or a
+// close. A bare GitHub issue/PR link (no other words) still triggers the
+// AI so its summary lands as a dated log_note — see noInstructionPlaceholder.
+func Edit(ctx context.Context, s *store.Store, query, change string, noFetch bool) error {
 	items, errs := s.List()
 	for _, e := range errs {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", e)
@@ -38,14 +47,18 @@ func Edit(ctx context.Context, s *store.Store, query, change string) error {
 	if remainder == "" && len(links) == 0 {
 		return fmt.Errorf("nothing to change: input contained no text and no links")
 	}
+	refs := github.DetectRefs(links)
 
 	proposed := *it.Todo // shallow copy — safe since all fields we mutate are reassigned, not mutated in place
 	if len(links) > 0 {
 		proposed.Links = append(append([]string{}, it.Todo.Links...), links...)
 	}
 
+	// A bare GitHub link (no other words) still calls the AI so its summary
+	// lands as a dated log note, not just a URL in Links. A non-GitHub link
+	// with no other text skips the AI entirely, as before.
 	var summary string
-	if remainder != "" {
+	if remainder != "" || len(refs) > 0 {
 		apiKey, err := s.APIKey()
 		if err != nil {
 			return err
@@ -54,7 +67,13 @@ func Edit(ctx context.Context, s *store.Store, query, change string) error {
 		existingCats := store.AllCategories(items)
 		today := time.Now().Format("2006-01-02")
 
-		result, err := ai.ParseEdit(ctx, client, existingCats, today, remainder)
+		reference := buildReference(ctx, links, noFetch)
+		instruction := remainder
+		if instruction == "" {
+			instruction = noInstructionPlaceholder
+		}
+
+		result, err := ai.ParseEdit(ctx, client, existingCats, today, instruction, reference)
 		if err != nil {
 			return fmt.Errorf("asking the AI to classify the change: %w", err)
 		}
@@ -64,6 +83,9 @@ func Edit(ctx context.Context, s *store.Store, query, change string) error {
 			text := result.LogText
 			if text == "" {
 				text = remainder
+			}
+			if text == "" {
+				text = "referenced " + strings.Join(links, ", ")
 			}
 			date := today
 			if v := validAIDate(result.Date); v != "" {

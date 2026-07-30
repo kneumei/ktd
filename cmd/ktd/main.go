@@ -61,7 +61,8 @@ args), e.g. "ktd close 0002 --as-of 2026-07-23".`,
 }
 
 func newAddCmd() *cobra.Command {
-	return &cobra.Command{
+	var noFetch bool
+	cmd := &cobra.Command{
 		Use:   "add <text>",
 		Short: "Parse freeform text into a new open item (AI)",
 		Args:  cobra.MinimumNArgs(1),
@@ -70,13 +71,16 @@ func newAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return commands.Add(cmd.Context(), s, strings.Join(args, " "))
+			return commands.Add(cmd.Context(), s, strings.Join(args, " "), noFetch)
 		},
 	}
+	cmd.Flags().BoolVar(&noFetch, "no-fetch", false, "don't fetch referenced GitHub issue/PR content")
+	return cmd
 }
 
 func newDoneCmd() *cobra.Command {
 	var asOf string
+	var noFetch bool
 	cmd := &cobra.Command{
 		Use:   "done <text>",
 		Short: "Same as add, but files it already closed (AI)",
@@ -86,15 +90,17 @@ func newDoneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return commands.Done(cmd.Context(), s, strings.Join(args, " "), asOf)
+			return commands.Done(cmd.Context(), s, strings.Join(args, " "), asOf, noFetch)
 		},
 	}
 	cmd.Flags().StringVar(&asOf, "as-of", "", "file the item as closed as of this date (YYYY-MM-DD)")
+	cmd.Flags().BoolVar(&noFetch, "no-fetch", false, "don't fetch referenced GitHub issue/PR content")
 	return cmd
 }
 
 func newEditCmd() *cobra.Command {
-	return &cobra.Command{
+	var noFetch bool
+	cmd := &cobra.Command{
 		Use:   "edit <id|text> <change>",
 		Short: "Resolve an item and apply a freeform change (AI)",
 		Args:  cobra.MinimumNArgs(2),
@@ -103,9 +109,11 @@ func newEditCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return commands.Edit(cmd.Context(), s, args[0], strings.Join(args[1:], " "))
+			return commands.Edit(cmd.Context(), s, args[0], strings.Join(args[1:], " "), noFetch)
 		},
 	}
+	cmd.Flags().BoolVar(&noFetch, "no-fetch", false, "don't fetch referenced GitHub issue/PR content")
+	return cmd
 }
 
 func newCloseCmd() *cobra.Command {

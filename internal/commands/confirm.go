@@ -21,6 +21,9 @@ func confirmItems(verb string, items []*model.Todo) bool {
 	}
 	for _, t := range items {
 		fmt.Printf("  Title:      %s\n", t.Title)
+		if t.Body != "" {
+			fmt.Printf("  Body:       %s\n", truncateForDisplay(t.Body, 300))
+		}
 		fmt.Printf("  Categories: %s\n", formatCatsInline(t.Categories))
 		fmt.Printf("  Created:    %s\n", t.Created)
 		if t.Status == "closed" {
@@ -54,4 +57,16 @@ func formatCatsInline(cats []string) string {
 		return "[]"
 	}
 	return "[" + strings.Join(cats, ", ") + "]"
+}
+
+// truncateForDisplay collapses newlines to spaces and clips s to at most n
+// runes (appending an ellipsis) so a long AI-derived body summary doesn't
+// blow up the confirm prompt.
+func truncateForDisplay(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }

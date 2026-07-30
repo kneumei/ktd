@@ -29,10 +29,11 @@ func ExtractLinks(text string) (links []string, remainder string) {
 }
 
 // AddResult is the AI-distilled shape of a freeform `ktd add`/`ktd done`
-// input: a short headline title and zero or more categories reusing the
-// existing category set's casing.
+// input: a short headline title, an optional body summary, and zero or more
+// categories reusing the existing category set's casing.
 type AddResult struct {
 	Title      string   `json:"title"`
+	Body       string   `json:"body"`
 	Categories []string `json:"categories"`
 	Date       string   `json:"date"`
 }
@@ -40,8 +41,11 @@ type AddResult struct {
 const addSystemPrompt = `You help maintain a personal work-todo tracker. Given freeform text describing a task, distill:
 
 - "title": a short, punchy headline (not a full sentence) that names the task.
+- "body": only fill this in when a "Referenced GitHub items" block is given below the text — write a concise 1-2 sentence summary of what the referenced issue(s)/PR(s) are about, to serve as the item's description. Omit this field when no reference block is present (the caller falls back to the user's own text).
 - "categories": zero or more freeform theme tags that apply, inferred only from what the text implies — never invent a category with no basis in the text. When an existing category clearly applies, reuse its exact casing rather than creating a near-duplicate.
 - "date": only if the text explicitly states a date the item applies to (absolute like "2026-07-25", or relative like "yesterday", "last Monday"), resolve it to YYYY-MM-DD using today's date, which is %s. Omit this field entirely if no date is stated. Never leave the resolved date sitting inside "title" — strip it out.
+
+When a "Referenced GitHub items" block is present: if the user's own text is descriptive (more than just a bare link), prefer their own words for "title" and use the reference only to enrich "body". If the user supplied little or no text of their own, derive both "title" and "body" from the referenced item(s).
 
 Existing categories in use: %s
 
@@ -49,13 +53,17 @@ Respond only via the add_item tool.`
 
 var addTool = tool{
 	Name:        "add_item",
-	Description: "Record the distilled title and categories for a new todo item.",
+	Description: "Record the distilled title, body, and categories for a new todo item.",
 	InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"title": map[string]any{
 				"type":        "string",
 				"description": "Short, headline-style title for the item.",
+			},
+			"body": map[string]any{
+				"type":        "string",
+				"description": "1-2 sentence summary derived from referenced GitHub items, if any were given. Omit otherwise.",
 			},
 			"categories": map[string]any{
 				"type":        "array",
@@ -72,14 +80,16 @@ var addTool = tool{
 	},
 }
 
-// ParseAdd distills a title, categories, and an optional as-of date from
-// freeform input text for `ktd add` / `ktd done`. today is passed as
-// YYYY-MM-DD so the AI can resolve relative dates like "yesterday".
-// Callers should run ExtractLinks first and pass the link-stripped
-// remainder as text.
-func ParseAdd(ctx context.Context, c *Client, existingCategories []string, today, text string) (AddResult, error) {
+// ParseAdd distills a title, optional body, categories, and an optional
+// as-of date from freeform input text for `ktd add` / `ktd done`. today is
+// passed as YYYY-MM-DD so the AI can resolve relative dates like
+// "yesterday". Callers should run ExtractLinks first and pass the
+// link-stripped remainder as text. reference, if non-empty, is a formatted
+// block of fetched GitHub issue/PR content (see internal/github) appended
+// to the user message as extra context — pass "" when there's none.
+func ParseAdd(ctx context.Context, c *Client, existingCategories []string, today, text, reference string) (AddResult, error) {
 	system := fmt.Sprintf(addSystemPrompt, today, formatCategoryList(existingCategories))
-	raw, err := c.CallTool(ctx, system, text, addTool)
+	raw, err := c.CallTool(ctx, system, withReference(text, reference), addTool)
 	if err != nil {
 		return AddResult{}, err
 	}
@@ -119,6 +129,8 @@ const editSystemPrompt = `You help maintain a personal work-todo tracker. Given 
 - "body_addition": more description or context to append to the item — write it to body_addition.
 - "category_change": the user wants to add and/or remove category tags — list them in categories_add / categories_remove, reusing existing casing where an existing category applies.
 - "close_item": the user wants to mark the item closed/done, e.g. "close it", "mark this done", "close date is yesterday" — no log_text/body_addition needed.
+
+When a "Referenced GitHub items" block is given below the text, weave a summary of it into whichever field you're filling in (e.g. log_text: "Fixed by PR #123: <what it did>"). If the text carries no instruction of its own beyond the reference (e.g. it's just a bare link), classify as "log_note" and write a concise 1-2 sentence summary of the referenced item(s) as log_text — that is the default when the user gives you nothing else to go on.
 
 For log_note and close_item, if the text explicitly states a date the work/close applies to (absolute like "2026-07-25", or relative like "yesterday", "last Monday"), resolve it to YYYY-MM-DD in "date" using today's date, which is %s. Omit "date" if none is stated. Never leave the resolved date sitting inside log_text.
 
@@ -168,10 +180,14 @@ var editTool = tool{
 // YYYY-MM-DD so the AI can resolve relative dates like "yesterday".
 // Callers should run ExtractLinks first and append any found links to the
 // item directly (mechanically) rather than relying on this classification
-// for links.
-func ParseEdit(ctx context.Context, c *Client, existingCategories []string, today, text string) (EditResult, error) {
+// for links. reference, if non-empty, is a formatted block of fetched
+// GitHub issue/PR content (see internal/github) appended to the user
+// message as extra context — pass "" when there's none. text may be a
+// synthesized placeholder (never truly empty) when the caller has nothing
+// but a reference to go on.
+func ParseEdit(ctx context.Context, c *Client, existingCategories []string, today, text, reference string) (EditResult, error) {
 	system := fmt.Sprintf(editSystemPrompt, today, formatCategoryList(existingCategories))
-	raw, err := c.CallTool(ctx, system, text, editTool)
+	raw, err := c.CallTool(ctx, system, withReference(text, reference), editTool)
 	if err != nil {
 		return EditResult{}, err
 	}
@@ -260,6 +276,17 @@ func DraftWeekly(ctx context.Context, c *Client, itemsSummary string) (WeeklyRes
 		return WeeklyResult{}, fmt.Errorf("parsing draft_weekly tool input: %w", err)
 	}
 	return result, nil
+}
+
+// withReference appends a formatted block of fetched GitHub issue/PR
+// content to the user's own text, delimited clearly so the model can tell
+// the user's words apart from reference material. Returns text unchanged
+// when reference is empty.
+func withReference(text, reference string) string {
+	if reference == "" {
+		return text
+	}
+	return text + "\n\n--- Referenced GitHub items ---\n" + reference
 }
 
 func formatCategoryList(categories []string) string {

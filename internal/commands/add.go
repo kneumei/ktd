@@ -10,10 +10,11 @@ import (
 	"ktd/internal/store"
 )
 
-// Add runs `ktd add <text>`: extract links deterministically, ask the AI
-// to distill a title and categories from the remaining text, confirm with
-// the user, then write a new open item.
-func Add(ctx context.Context, s *store.Store, text string) error {
+// Add runs `ktd add <text>`: extract links deterministically, fetch any
+// referenced GitHub issue/PR (unless noFetch), ask the AI to distill a
+// title/body/categories from the remaining text plus that reference,
+// confirm with the user, then write a new open item.
+func Add(ctx context.Context, s *store.Store, text string, noFetch bool) error {
 	apiKey, err := s.APIKey()
 	if err != nil {
 		return err
@@ -25,7 +26,8 @@ func Add(ctx context.Context, s *store.Store, text string) error {
 
 	today := time.Now().Format("2006-01-02")
 	links, remainder := ai.ExtractLinks(text)
-	result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder)
+	reference := buildReference(ctx, links, noFetch)
+	result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder, reference)
 	if err != nil {
 		return fmt.Errorf("asking the AI to parse the item: %w", err)
 	}
@@ -40,6 +42,11 @@ func Add(ctx context.Context, s *store.Store, text string) error {
 		created = v
 	}
 
+	body := remainder
+	if result.Body != "" {
+		body = result.Body
+	}
+
 	t := &model.Todo{
 		ID:         id,
 		Title:      result.Title,
@@ -47,7 +54,7 @@ func Add(ctx context.Context, s *store.Store, text string) error {
 		Categories: result.Categories,
 		Created:    created,
 		Links:      links,
-		Body:       remainder,
+		Body:       body,
 	}
 
 	if !confirmItems("add", []*model.Todo{t}) {
