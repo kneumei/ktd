@@ -150,13 +150,14 @@ func newListCmd() *cobra.Command {
 				return err
 			}
 			opts := commands.ListOptions{
-				Category: strings.Join(args, " "),
-				Status:   status,
-				Sort:     sortBy,
-				Since:    since,
-				Search:   search,
-				Detail:   detail,
-				NoColor:  noColor,
+				Category:       strings.Join(args, " "),
+				Status:         status,
+				StatusExplicit: cmd.Flags().Changed("status"),
+				Sort:           sortBy,
+				Since:          since,
+				Search:         search,
+				Detail:         detail,
+				NoColor:        noColor,
 			}
 			return commands.List(s, opts)
 		},
@@ -164,7 +165,7 @@ func newListCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&status, "status", "open", "open|closed|all")
 	cmd.Flags().StringVar(&sortBy, "sort", "category", "category|age|id")
-	cmd.Flags().IntVar(&since, "since", 0, "items closed in the last N days (overrides --status)")
+	cmd.Flags().IntVar(&since, "since", 0, "items added, logged, or closed in the last N days (--status defaults to all)")
 	cmd.Flags().StringVar(&search, "search", "", "substring search across title/categories/body")
 	cmd.Flags().BoolVar(&detail, "detail", false, "verbose per-item detail")
 	cmd.Flags().BoolVar(&noColor, "no-color", false, "disable ANSI color output")

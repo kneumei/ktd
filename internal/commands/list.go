@@ -34,13 +34,14 @@ const (
 
 // ListOptions mirrors list-todos.ps1's parameters.
 type ListOptions struct {
-	Category string
-	Status   string // "open" (default) | "closed" | "all"
-	Sort     string // "category" (default) | "age" | "id"
-	Since    int
-	Search   string
-	Detail   bool
-	NoColor  bool
+	Category       string
+	Status         string // "open" (default) | "closed" | "all"
+	StatusExplicit bool   // did the caller actually pass --status? (see List)
+	Sort           string // "category" (default) | "age" | "id"
+	Since          int
+	Search         string
+	Detail         bool
+	NoColor        bool
 }
 
 // List runs `ktd list`.
@@ -50,6 +51,13 @@ func List(s *store.Store, opts ListOptions) error {
 	}
 	if opts.Sort == "" {
 		opts.Sort = "category"
+	}
+	if opts.Since > 0 && !opts.StatusExplicit {
+		// A since-window is a recap of everything that happened, so the
+		// usual "open" default would hide the items you just closed —
+		// exactly what you're looking for. An explicit --status still
+		// narrows the window's results.
+		opts.Status = "all"
 	}
 
 	items, errs := s.List()
@@ -72,59 +80,176 @@ func List(s *store.Store, opts ListOptions) error {
 	return listNormal(items, opts, canon, useColor, today)
 }
 
+// Activity kinds reported by --since, in the order they can happen to an
+// item (which is also the order they're printed in on a single line).
+const (
+	sinceAdded  = "added"
+	sinceLogged = "logged"
+	sinceClosed = "closed"
+)
+
+// sinceEvent is one dated thing that happened to an item inside the
+// --since window.
+type sinceEvent struct {
+	kind string
+	date time.Time
+}
+
+// sinceActivity is one item plus its in-window events, oldest first.
+type sinceActivity struct {
+	it     store.Item
+	events []sinceEvent
+}
+
+// latest is the date of the most recent in-window event — what the
+// listing sorts on.
+func (a sinceActivity) latest() time.Time { return a.events[len(a.events)-1].date }
+
+// listSince reports every item touched in the last N days and how it was
+// touched: created (added), given a log entry (logged), or closed. An
+// item can show more than one of those; it's still one line.
 func listSince(items []store.Item, opts ListOptions, canon categories.CanonicalMap, useColor bool, today time.Time) error {
-	cutoff := today.AddDate(0, 0, -opts.Since)
-
-	type closedItem struct {
-		it       store.Item
-		closedAt time.Time
-		daysAgo  int
+	// The window is whole days, anchored at midnight: --since 1 means
+	// "yesterday and today", not "the last 24 hours" — dates parse to
+	// midnight, so a clock-time cutoff would drop the far edge entirely.
+	// Boundaries are built in UTC to match what time.Parse hands back for
+	// a bare YYYY-MM-DD; today's *calendar* day is still the local one.
+	end := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+	start := end.AddDate(0, 0, -opts.Since)
+	inWindow := func(dateStr string) (time.Time, bool) {
+		d, err := time.Parse("2006-01-02", dateStr)
+		if err != nil || d.Before(start) || d.After(end) {
+			return time.Time{}, false
+		}
+		return d, true
 	}
-	var closed []closedItem
+
+	var activity []sinceActivity
 	for _, it := range items {
-		if it.Todo.Status != "closed" || it.Todo.Closed == "" {
+		t := it.Todo
+		if opts.Status != "all" && t.Status != opts.Status {
 			continue
 		}
-		d, err := time.Parse("2006-01-02", it.Todo.Closed)
-		if err != nil {
+		if opts.Category != "" && !hasCategorySubstring(t.Categories, opts.Category) {
 			continue
 		}
-		if d.Before(cutoff) || d.After(today) {
+
+		var events []sinceEvent
+		if d, ok := inWindow(t.Created); ok {
+			events = append(events, sinceEvent{sinceAdded, d})
+		}
+		// Several log bullets in one window still just mean "worked on
+		// it", so only the most recent one is reported.
+		var logged time.Time
+		for _, e := range t.Log {
+			if d, ok := inWindow(e.Date); ok && d.After(logged) {
+				logged = d
+			}
+		}
+		if !logged.IsZero() {
+			events = append(events, sinceEvent{sinceLogged, logged})
+		}
+		if t.Status == "closed" {
+			if d, ok := inWindow(t.Closed); ok {
+				events = append(events, sinceEvent{sinceClosed, d})
+			}
+		}
+		if len(events) == 0 {
 			continue
 		}
-		if opts.Category != "" && !hasCategorySubstring(it.Todo.Categories, opts.Category) {
-			continue
-		}
-		closed = append(closed, closedItem{it: it, closedAt: d, daysAgo: int(today.Sub(d).Hours() / 24)})
+		sort.SliceStable(events, func(i, j int) bool { return events[i].date.Before(events[j].date) })
+		activity = append(activity, sinceActivity{it: it, events: events})
 	}
 
-	if len(closed) == 0 {
-		fmt.Printf("🤷 No items closed in the last %d days.\n", opts.Since)
+	if len(activity) == 0 {
+		fmt.Printf("🤷 No activity in the last %s.\n", dayCount(opts.Since))
 		return nil
 	}
 
-	sort.Slice(closed, func(i, j int) bool {
-		if !closed[i].closedAt.Equal(closed[j].closedAt) {
-			return closed[i].closedAt.After(closed[j].closedAt)
+	sort.Slice(activity, func(i, j int) bool {
+		if !activity[i].latest().Equal(activity[j].latest()) {
+			return activity[i].latest().After(activity[j].latest())
 		}
-		return closed[i].it.Todo.ID < closed[j].it.Todo.ID
+		return activity[i].it.Todo.ID < activity[j].it.Todo.ID
 	})
 
-	titleMatched := map[string]bool{}
-	for _, c := range closed {
+	counts := map[string]int{}
+	for _, a := range activity {
+		for _, e := range a.events {
+			counts[e.kind]++
+		}
 		if opts.Detail {
-			writeItemVerbose(c.it.Todo, canon, useColor, titleMatched[c.it.Todo.ID], today)
+			writeItemVerbose(a.it.Todo, canon, useColor, false, today)
 			continue
 		}
-		id := colorize(useColor, colorDarkGray, c.it.Todo.ID)
-		title := c.it.Todo.Title
-		catStr := colorize(useColor, colorDarkGray, canon.FormatList(c.it.Todo.Categories))
-		closedNote := colorize(useColor, colorCyan, fmt.Sprintf("✅ closed %s (%dd ago)", c.it.Todo.Closed, c.daysAgo))
-		fmt.Printf("%s  %s  %s  %s\n", id, title, catStr, closedNote)
+		id := colorize(useColor, colorDarkGray, a.it.Todo.ID)
+		catStr := colorize(useColor, colorDarkGray, canon.FormatList(a.it.Todo.Categories))
+		fmt.Printf("%s  %s  %s  %s\n", id, a.it.Todo.Title, catStr, formatSinceEvents(a.events, useColor, end))
 	}
 	fmt.Println()
-	fmt.Println(colorize(useColor, colorGray, fmt.Sprintf("📊 Total: %d item(s) closed in the last %d days.", len(closed), opts.Since)))
+	fmt.Println(colorize(useColor, colorGray, fmt.Sprintf("📊 Total: %d item(s) active in the last %s — %s.",
+		len(activity), dayCount(opts.Since), sinceBreakdown(counts))))
 	return nil
+}
+
+// formatSinceEvents renders an item's in-window events as one trailing
+// note, e.g. "🆕 added 4d ago · ✅ closed today".
+func formatSinceEvents(events []sinceEvent, useColor bool, end time.Time) string {
+	parts := make([]string, 0, len(events))
+	for _, e := range events {
+		days := int(end.Sub(e.date).Hours() / 24)
+		note := fmt.Sprintf("%s %s %s", sinceEmoji(e.kind), e.kind, daysAgo(days))
+		parts = append(parts, colorize(useColor, sinceColor(e.kind), note))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// sinceBreakdown summarizes the event counts behind a since listing, e.g.
+// "3 added, 1 logged, 4 closed", skipping kinds that didn't occur.
+func sinceBreakdown(counts map[string]int) string {
+	var parts []string
+	for _, kind := range []string{sinceAdded, sinceLogged, sinceClosed} {
+		if n := counts[kind]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, kind))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func dayCount(days int) string {
+	if days == 1 {
+		return "1 day"
+	}
+	return fmt.Sprintf("%d days", days)
+}
+
+func daysAgo(days int) string {
+	if days == 0 {
+		return "today"
+	}
+	return fmt.Sprintf("%dd ago", days)
+}
+
+func sinceColor(kind string) string {
+	switch kind {
+	case sinceAdded:
+		return colorGreen
+	case sinceLogged:
+		return colorYellow
+	default:
+		return colorCyan
+	}
+}
+
+func sinceEmoji(kind string) string {
+	switch kind {
+	case sinceAdded:
+		return "🆕"
+	case sinceLogged:
+		return "📝"
+	default:
+		return "✅"
+	}
 }
 
 func listNormal(items []store.Item, opts ListOptions, canon categories.CanonicalMap, useColor bool, today time.Time) error {
