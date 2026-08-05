@@ -164,7 +164,7 @@ func newListCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&status, "status", "open", "open|closed|all")
-	cmd.Flags().StringVar(&sortBy, "sort", "category", "category|age|id")
+	cmd.Flags().StringVar(&sortBy, "sort", "category", "category|age|id (age = least recently modified first)")
 	cmd.Flags().IntVar(&since, "since", 0, "items added, logged, or closed in the last N days (--status defaults to all)")
 	cmd.Flags().StringVar(&search, "search", "", "substring search across title/categories/body")
 	cmd.Flags().BoolVar(&detail, "detail", false, "verbose per-item detail")

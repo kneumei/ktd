@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"ktd/internal/categories"
 	"ktd/internal/model"
@@ -174,6 +175,7 @@ func listSince(items []store.Item, opts ListOptions, canon categories.CanonicalM
 	})
 
 	counts := map[string]int{}
+	var rows []listRow
 	for _, a := range activity {
 		for _, e := range a.events {
 			counts[e.kind]++
@@ -182,26 +184,13 @@ func listSince(items []store.Item, opts ListOptions, canon categories.CanonicalM
 			writeItemVerbose(a.it.Todo, canon, useColor, false, today)
 			continue
 		}
-		id := colorize(useColor, colorDarkGray, a.it.Todo.ID)
-		catStr := colorize(useColor, colorDarkGray, canon.FormatList(a.it.Todo.Categories))
-		fmt.Printf("%s  %s  %s  %s\n", id, a.it.Todo.Title, catStr, formatSinceEvents(a.events, useColor, end))
+		rows = append(rows, buildRow(a.it.Todo, canon, false))
 	}
+	printRows(rows, useColor)
 	fmt.Println()
 	fmt.Println(colorize(useColor, colorGray, fmt.Sprintf("📊 Total: %d item(s) active in the last %s — %s.",
 		len(activity), dayCount(opts.Since), sinceBreakdown(counts))))
 	return nil
-}
-
-// formatSinceEvents renders an item's in-window events as one trailing
-// note, e.g. "🆕 added 4d ago · ✅ closed today".
-func formatSinceEvents(events []sinceEvent, useColor bool, end time.Time) string {
-	parts := make([]string, 0, len(events))
-	for _, e := range events {
-		days := int(end.Sub(e.date).Hours() / 24)
-		note := fmt.Sprintf("%s %s %s", sinceEmoji(e.kind), e.kind, daysAgo(days))
-		parts = append(parts, colorize(useColor, sinceColor(e.kind), note))
-	}
-	return strings.Join(parts, " · ")
 }
 
 // sinceBreakdown summarizes the event counts behind a since listing, e.g.
@@ -221,35 +210,6 @@ func dayCount(days int) string {
 		return "1 day"
 	}
 	return fmt.Sprintf("%d days", days)
-}
-
-func daysAgo(days int) string {
-	if days == 0 {
-		return "today"
-	}
-	return fmt.Sprintf("%dd ago", days)
-}
-
-func sinceColor(kind string) string {
-	switch kind {
-	case sinceAdded:
-		return colorGreen
-	case sinceLogged:
-		return colorYellow
-	default:
-		return colorCyan
-	}
-}
-
-func sinceEmoji(kind string) string {
-	switch kind {
-	case sinceAdded:
-		return "🆕"
-	case sinceLogged:
-		return "📝"
-	default:
-		return "✅"
-	}
 }
 
 func listNormal(items []store.Item, opts ListOptions, canon categories.CanonicalMap, useColor bool, today time.Time) error {
@@ -284,21 +244,43 @@ func listNormal(items []store.Item, opts ListOptions, canon categories.Canonical
 		distinctCount = len(filtered)
 	}
 
+	// Every sort produces the same flat, column-aligned listing — only the
+	// order differs. Items with several categories appear once, not once
+	// per category.
 	switch opts.Sort {
 	case "age":
-		sort.Slice(filtered, func(i, j int) bool {
-			return ageDays(filtered[i].Todo, today) > ageDays(filtered[j].Todo, today)
+		// Stalest first, measured by the same last-modified date the
+		// listing prints — not by when the item was created.
+		sort.SliceStable(filtered, func(i, j int) bool {
+			a, b := lastModified(filtered[i].Todo), lastModified(filtered[j].Todo)
+			if a != b {
+				return a < b
+			}
+			return filtered[i].Todo.ID < filtered[j].Todo.ID
 		})
-		for _, it := range filtered {
-			writeItem(it.Todo, canon, useColor, titleMatched[it.Todo.ID], true, today)
-		}
 	case "id":
-		sort.Slice(filtered, func(i, j int) bool { return filtered[i].Todo.ID < filtered[j].Todo.ID })
-		for _, it := range filtered {
-			writeItem(it.Todo, canon, useColor, titleMatched[it.Todo.ID], true, today)
-		}
+		sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].Todo.ID < filtered[j].Todo.ID })
 	default: // "category"
-		listByCategory(filtered, canon, useColor, opts.Detail, titleMatched, today)
+		sort.SliceStable(filtered, func(i, j int) bool {
+			a, b := categorySortKey(filtered[i].Todo, canon), categorySortKey(filtered[j].Todo, canon)
+			if a != b {
+				return a < b
+			}
+			return filtered[i].Todo.ID < filtered[j].Todo.ID
+		})
+	}
+
+	var rows []listRow
+	for _, it := range filtered {
+		if opts.Detail {
+			writeItemVerbose(it.Todo, canon, useColor, titleMatched[it.Todo.ID], today)
+			continue
+		}
+		rows = append(rows, buildRow(it.Todo, canon, titleMatched[it.Todo.ID]))
+	}
+	printRows(rows, useColor)
+	if len(rows) > 0 {
+		fmt.Println()
 	}
 
 	footer := "Total: " + fmt.Sprint(distinctCount) + " "
@@ -314,76 +296,96 @@ func listNormal(items []store.Item, opts ListOptions, canon categories.Canonical
 	return nil
 }
 
-func listByCategory(items []store.Item, canon categories.CanonicalMap, useColor, detail bool, titleMatched map[string]bool, today time.Time) {
-	groups := map[string][]store.Item{}
-	for _, it := range items {
-		if len(it.Todo.Categories) == 0 {
-			groups["No category"] = append(groups["No category"], it)
-			continue
-		}
-		seen := map[string]bool{}
-		for _, c := range it.Todo.Categories {
-			cn := canon.Canonical(c)
-			if seen[cn] {
-				continue
-			}
-			seen[cn] = true
-			groups[cn] = append(groups[cn], it)
-		}
+// categorySortKey orders an item within the default category sort: by its
+// canonical categories, uncategorized items last.
+func categorySortKey(t *model.Todo, canon categories.CanonicalMap) string {
+	if len(t.Categories) == 0 {
+		return "￿" // sorts after any real category name
 	}
+	cats := make([]string, 0, len(t.Categories))
+	for _, c := range t.Categories {
+		cats = append(cats, strings.ToLower(canon.Canonical(c)))
+	}
+	sort.Strings(cats)
+	return strings.Join(cats, ", ")
+}
 
-	var names []string
-	for name := range groups {
-		if name != "No category" {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	if _, ok := groups["No category"]; ok {
-		names = append(names, "No category")
-	}
+// listRow is one item's listing line, kept as separate fields so a whole
+// listing can be column-aligned before any of it is printed. Every
+// non-detail listing (plain, sorted, or --since) renders through this, so
+// the shape is always and only: id, status emoji, last-modified date,
+// categories, title.
+type listRow struct {
+	id         string
+	emoji      string
+	date       string
+	category   string
+	title      string
+	dateColor  string
+	titleColor string
+}
 
-	for _, name := range names {
-		group := groups[name]
-		sort.Slice(group, func(i, j int) bool { return group[i].Todo.ID < group[j].Todo.ID })
-		fmt.Println(colorize(useColor, colorCyan, "📁 "+name))
-		for _, it := range group {
-			if detail {
-				writeItemVerbose(it.Todo, canon, useColor, titleMatched[it.Todo.ID], today)
-			} else {
-				writeItem(it.Todo, canon, useColor, titleMatched[it.Todo.ID], false, today)
-			}
+// Status markers for the listing's emoji column: an unchecked box for
+// open, a checked one for closed. Deliberately not the traffic lights
+// used elsewhere for age — this column reports state, not staleness.
+const (
+	statusEmojiOpen   = "⬜"
+	statusEmojiClosed = "✅"
+)
+
+func buildRow(t *model.Todo, canon categories.CanonicalMap, matched bool) listRow {
+	row := listRow{
+		id:       t.ID,
+		date:     lastModified(t),
+		category: canon.FormatList(t.Categories),
+		title:    t.Title,
+	}
+	if t.Status == "closed" {
+		row.emoji = statusEmojiClosed
+		row.dateColor = colorDarkGray
+		row.titleColor = colorDarkGray
+		return row
+	}
+	row.emoji = statusEmojiOpen
+	if matched {
+		row.titleColor = colorYellow
+	}
+	return row
+}
+
+// printRows writes rows as a table, padding the category column to the
+// widest one present so the titles line up.
+func printRows(rows []listRow, useColor bool) {
+	catWidth := 0
+	for _, r := range rows {
+		if w := utf8.RuneCountInString(r.category); w > catWidth {
+			catWidth = w
 		}
-		if !detail {
-			fmt.Println()
-		}
+	}
+	for _, r := range rows {
+		cat := r.category + strings.Repeat(" ", catWidth-utf8.RuneCountInString(r.category))
+		fmt.Printf("%s %s %s %s  %s\n",
+			colorize(useColor, colorDarkGray, r.id),
+			r.emoji,
+			colorize(useColor, r.dateColor, r.date),
+			colorize(useColor, colorDarkGray, cat),
+			colorize(useColor, r.titleColor, r.title))
 	}
 }
 
-func writeItem(t *model.Todo, canon categories.CanonicalMap, useColor, matched, inlineCategory bool, today time.Time) {
-	prefix := ""
-	titleColor := ""
-	if t.Status == "closed" {
-		prefix = "✅ "
-		titleColor = colorDarkGray
-	} else if matched {
-		titleColor = colorYellow
+// lastModified is the most recent date an item was touched: created, then
+// any log entry, then closed.
+func lastModified(t *model.Todo) string {
+	latest := t.Created
+	for _, e := range t.Log {
+		if e.Date > latest {
+			latest = e.Date
+		}
 	}
-
-	id := colorize(useColor, colorDarkGray, t.ID)
-	title := colorize(useColor, titleColor, t.Title)
-
-	line := fmt.Sprintf("%s%s  %s  ", prefix, id, title)
-	if inlineCategory {
-		line += colorize(useColor, colorDarkGray, canon.FormatList(t.Categories)) + "  "
+	if t.Closed > latest {
+		latest = t.Closed
 	}
-	if t.Status == "closed" {
-		line += colorize(useColor, colorDarkGray, "closed "+t.Closed)
-	} else {
-		age := ageDays(t, today)
-		line += colorize(useColor, ageColor(age), fmt.Sprintf("%s (%dd)", ageEmoji(age), age))
-	}
-	fmt.Println(line)
+	return latest
 }
 
 func writeItemVerbose(t *model.Todo, canon categories.CanonicalMap, useColor, matched bool, today time.Time) {
