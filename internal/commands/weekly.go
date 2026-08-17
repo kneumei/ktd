@@ -10,6 +10,7 @@ import (
 
 	"ktd/internal/ai"
 	"ktd/internal/categories"
+	"ktd/internal/github"
 	"ktd/internal/model"
 	"ktd/internal/store"
 )
@@ -114,11 +115,12 @@ type weeklyGroup struct {
 }
 
 // groupByCategory buckets the AI's distilled item summaries under each
-// item's actual (canonicalized) categories — the same grouping `ktd list`
-// does — rather than trusting the AI to reproduce categories itself. An
-// item with multiple categories appears once under each; an item with none
-// (or an id the AI didn't echo back correctly) lands under "Other".
-// Groups are sorted alphabetically, with "Other" last.
+// item's actual (canonicalized) first category — the same categories `ktd
+// list` uses — rather than trusting the AI to reproduce categories itself.
+// An item with multiple categories appears once, under the first (earliest-
+// tagged) one; an item with none (or an id the AI didn't echo back
+// correctly) lands under "Other". Groups are sorted alphabetically, with
+// "Other" last.
 func groupByCategory(summaries []ai.WeeklyItemSummary, byID map[string]*model.Todo, canon categories.CanonicalMap) []weeklyGroup {
 	const other = "Other"
 	buckets := map[string][]ai.WeeklyItemSummary{}
@@ -128,15 +130,8 @@ func groupByCategory(summaries []ai.WeeklyItemSummary, byID map[string]*model.To
 			buckets[other] = append(buckets[other], s)
 			continue
 		}
-		seen := map[string]bool{}
-		for _, c := range t.Categories {
-			cn := canon.Canonical(c)
-			if seen[cn] {
-				continue
-			}
-			seen[cn] = true
-			buckets[cn] = append(buckets[cn], s)
-		}
+		cn := canon.Canonical(t.Categories[0])
+		buckets[cn] = append(buckets[cn], s)
 	}
 
 	var names []string
@@ -171,8 +166,12 @@ func renderWeeklyReport(result ai.WeeklyResult, byID map[string]*model.Todo, can
 			b.WriteString("\n\n")
 			for _, item := range g.Items {
 				line := item.Text
-				if item.Link != "" {
-					line += " " + item.Link
+				if t, ok := byID[item.ID]; ok && len(t.Links) > 0 {
+					refs := make([]string, len(t.Links))
+					for i, l := range t.Links {
+						refs[i] = github.ShortRef(l)
+					}
+					line += ": " + strings.Join(refs, ", ")
 				}
 				b.WriteString("    • " + line + "\n")
 			}
@@ -220,7 +219,7 @@ func formatItemForSummary(t *model.Todo) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "- id=%s title=%q", t.ID, t.Title)
 	if len(t.Links) > 0 {
-		fmt.Fprintf(&b, " link=%s", t.Links[0])
+		fmt.Fprintf(&b, " links=%s", strings.Join(t.Links, ","))
 	}
 	if body := oneLine(t.Body); body != "" {
 		fmt.Fprintf(&b, "\n  body: %s", body)

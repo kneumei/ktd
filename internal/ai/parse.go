@@ -200,14 +200,13 @@ func ParseEdit(ctx context.Context, c *Client, existingCategories []string, toda
 
 // WeeklyItemSummary is the AI's distilled one-line summary of a single
 // candidate item for the Last or This section of the weekly report.
-// Category grouping and layout are deliberately not the AI's job — they're
-// done mechanically by the caller from each item's actual categories, the
-// same way `ktd list` groups by category, since that's data the AI would
+// Category grouping and links are deliberately not the AI's job — they're
+// done mechanically by the caller from each item's actual categories/links,
+// the same way `ktd list` groups by category, since that's data the AI would
 // otherwise have to (unreliably) echo back correctly.
 type WeeklyItemSummary struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
-	Link string `json:"link"`
 }
 
 // WeeklyResult holds the AI-summarized candidate items for both sections
@@ -221,10 +220,9 @@ const weeklySystemPrompt = `You help draft a weekly status report from a persona
 
 For each item worth reporting, distill it to:
 - "id": copied exactly from the input.
-- "text": a short "<name for the task/project> — <what happened or what's planned>" line, drawing on the body/log detail if present. Not a full sentence, no trailing period.
-- "link": the item's most useful URL, only if one was given and it adds real value; omit otherwise.
+- "text": a short phrase naming the action taken and, briefly, the problem/goal it addresses — e.g. "Reviewed compass-prompt-compute-metrics changes" or "Created infra for Acme integration". Not a full sentence, no em dash, no trailing period.
 
-Do not group or categorize — just list distilled items per section, in the order given. Omit trivial or redundant items; keep each section scannable, not exhaustive.
+Do not group or categorize, and do not include links — both are added mechanically by the caller. Just list distilled items per section, in the order given. Omit trivial or redundant items; keep each section scannable, not exhaustive.
 
 Respond only via the draft_weekly tool.`
 
@@ -232,8 +230,7 @@ var weeklyItemSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
 		"id":   map[string]any{"type": "string", "description": "The item's id, copied exactly as given in the input."},
-		"text": map[string]any{"type": "string", "description": "Short distilled summary line for the item."},
-		"link": map[string]any{"type": "string", "description": "The item's most useful URL, if any adds value."},
+		"text": map[string]any{"type": "string", "description": "Short action-focused summary phrase for the item, no narration or links."},
 	},
 	"required":             []string{"id", "text"},
 	"additionalProperties": false,

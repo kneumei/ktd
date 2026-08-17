@@ -35,6 +35,8 @@ var refRe = regexp.MustCompile(`^https?://[^/]*github[^/]*/([^/]+)/([^/]+)/(issu
 // Ref identifies a single GitHub issue or PR referenced by URL.
 type Ref struct {
 	URL    string
+	Owner  string
+	Repo   string
 	Kind   string // "issue" or "pr"
 	Number string
 }
@@ -52,9 +54,25 @@ func DetectRefs(links []string) []Ref {
 		if m[3] == "pull" {
 			kind = "pr"
 		}
-		refs = append(refs, Ref{URL: l, Kind: kind, Number: m[4]})
+		refs = append(refs, Ref{URL: l, Owner: m[1], Repo: m[2], Kind: kind, Number: m[4]})
 	}
 	return refs
+}
+
+// ShortRef renders a GitHub issue/PR URL as "<owner>/<repo>/pulls/<number>"
+// or "<owner>/<repo>/issues/<number>" so the repo context isn't lost the way
+// a bare URL loses it at a glance. Returns url unchanged if it isn't a
+// recognized GitHub issue/PR link.
+func ShortRef(url string) string {
+	m := refRe.FindStringSubmatch(url)
+	if m == nil {
+		return url
+	}
+	kind := "issues"
+	if m[3] == "pull" {
+		kind = "pulls"
+	}
+	return fmt.Sprintf("%s/%s/%s/%s", m[1], m[2], kind, m[4])
 }
 
 // Fetched holds the details of a Ref pulled from `gh`.
