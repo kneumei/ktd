@@ -57,7 +57,7 @@ func Add(ctx context.Context, s *store.Store, text string, noFetch bool) error {
 		Body:       body,
 	}
 
-	if !confirmItems("add", []*model.Todo{t}) {
+	if !confirmItems(ctx, s, noFetch, "add", []*model.Todo{t}) {
 		fmt.Println("❌ Aborted — nothing written.")
 		return nil
 	}

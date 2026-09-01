@@ -92,7 +92,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 		return nil
 	}
 
-	if !confirmItems("done", todos) {
+	if !confirmItems(ctx, s, noFetch, "done", todos) {
 		fmt.Println("❌ Aborted — nothing written.")
 		return nil
 	}

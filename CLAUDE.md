@@ -74,18 +74,28 @@ Package layout (`internal/`):
   categories, and body. Never guesses on ambiguity — returns candidates for
   the caller to print and bail out on instead.
 - **`ai`** — wraps the official `anthropic-sdk-go` client. `client.go` has
-  the one call primitive (`CallTool`, forced `tool_choice`, built on
-  `sdk.Messages.New`); `parse.go` has the three actual operations (`ParseAdd`,
-  `ParseEdit`, `DraftWeekly`) plus deterministic (non-AI) URL extraction via
-  `ExtractLinks`, which is always run before handing text to the AI so links
-  don't clutter the classification prompt. Model is Claude Haiku 4.5
-  (`ai.Model`), chosen for cost/speed on these small extraction tasks.
+  the call primitives (`CallTool`/`CallToolMax`, forced `tool_choice`, built
+  on `sdk.Messages.New`); `parse.go` has `ParseAdd`/`DraftWeekly` plus
+  deterministic (non-AI) URL extraction via `ExtractLinks`, which is always
+  run before handing text to the AI so links don't clutter the prompt.
+  `card_edit.go` has `ParseCardEdit`, used by `ktd edit` and the confirm
+  screens' `e` loop: it hands the AI the *entire* current card (title,
+  status, categories, body, dated log entries) plus a freeform instruction,
+  and the AI returns the *entire* new card state in one forced tool call —
+  deliberately not a classification/diff, so the model has full control
+  over every editable field rather than the CLI hand-coding each kind of
+  change. Model is Claude Haiku 4.5 (`ai.Model`), chosen for cost/speed on
+  these small extraction tasks.
 - **`commands`** — one function per subcommand, orchestrating the above
   packages. `confirm.go` centralizes the "print proposed item(s), prompt
-  y/N" pattern shared by every AI-driven write (`add`/`done`/`edit`) —
-  mechanical writes (`close`) don't prompt. `resolve.go` (in this package)
-  wraps `internal/resolve` to also print match/candidate/no-match
-  diagnostics to stdout, shared by `close`/`context`/`edit`.
+  y/N/e" pattern shared by every AI-driven write (`add`/`done`/`edit`) —
+  mechanical writes (`close`) don't prompt. Choosing `e` describes a
+  further freeform change to the proposed (not-yet-saved) item via
+  `ai.ParseCardEdit` and loops back to the prompt; with multiple proposed
+  items (`ktd done` on multi-line input) it first asks which item number to
+  edit. `resolve.go` (in this package) wraps `internal/resolve` to also
+  print match/candidate/no-match diagnostics to stdout, shared by
+  `close`/`context`/`edit`.
 
 ## Data format
 

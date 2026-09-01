@@ -14,17 +14,17 @@ import (
 	"ktd/internal/store"
 )
 
-// noInstructionPlaceholder is passed to ParseEdit in place of an empty
-// remainder when the user attached a GitHub link with no other words —
-// it tells the model explicitly that summarizing the reference is the
-// only job, rather than handing it a blank user message.
-const noInstructionPlaceholder = "(no instruction — summarize the referenced GitHub item(s) as a concise log note)"
+// noInstructionPlaceholder is passed to ParseCardEdit in place of an empty
+// remainder when the user attached a GitHub link with no other words — it
+// tells the model explicitly that summarizing the reference is the only
+// job, rather than handing it a blank instruction.
+const noInstructionPlaceholder = "(no instruction — add a concise log note dated today summarizing the referenced GitHub item(s); leave everything else unchanged)"
 
 // Edit runs `ktd edit <id|text> <change>`: resolve the item mechanically,
-// pull out any URLs deterministically, then ask the AI to classify the
-// remaining text as a log note, a body addition, a category change, or a
-// close. A bare GitHub issue/PR link (no other words) still triggers the
-// AI so its summary lands as a dated log_note — see noInstructionPlaceholder.
+// then hand the whole current card plus the freeform change to the AI,
+// which returns the complete new card state (see aiEditCard). The confirm
+// screen supports y/N/e — choosing e lets you describe a further change
+// before writing, looping until you answer y or n.
 func Edit(ctx context.Context, s *store.Store, query, change string, noFetch bool) error {
 	items, errs := s.List()
 	for _, e := range errs {
@@ -42,92 +42,34 @@ func Edit(ctx context.Context, s *store.Store, query, change string, noFetch boo
 		return nil
 	}
 
-	links, remainder := ai.ExtractLinks(change)
-	remainder = strings.TrimSpace(remainder)
-	if remainder == "" && len(links) == 0 {
-		return fmt.Errorf("nothing to change: input contained no text and no links")
-	}
-	refs := github.DetectRefs(links)
-
 	proposed := *it.Todo // shallow copy — safe since all fields we mutate are reassigned, not mutated in place
-	if len(links) > 0 {
-		proposed.Links = append(append([]string{}, it.Todo.Links...), links...)
+	if _, err := aiEditCard(ctx, s, &proposed, change, noFetch); err != nil {
+		return err
 	}
 
-	// A bare GitHub link (no other words) still calls the AI so its summary
-	// lands as a dated log note, not just a URL in Links. A non-GitHub link
-	// with no other text skips the AI entirely, as before.
-	var summary string
-	if remainder != "" || len(refs) > 0 {
-		apiKey, err := s.APIKey()
-		if err != nil {
-			return err
+	render := func() {
+		fmt.Printf("✏️  Proposed edit to %s — %s:\n", it.Todo.ID, it.Todo.Title)
+		lines := diffCard(it.Todo, &proposed)
+		if len(lines) == 0 {
+			fmt.Println("  (no field changes)")
 		}
-		client := ai.NewClient(apiKey)
-		existingCats := store.AllCategories(items)
-		today := time.Now().Format("2006-01-02")
-
-		reference := buildReference(ctx, links, noFetch)
-		instruction := remainder
-		if instruction == "" {
-			instruction = noInstructionPlaceholder
+		for _, l := range lines {
+			fmt.Println("  " + l)
 		}
-
-		result, err := ai.ParseEdit(ctx, client, existingCats, today, instruction, reference)
-		if err != nil {
-			return fmt.Errorf("asking the AI to classify the change: %w", err)
+		if len(proposed.Links) > len(it.Todo.Links) {
+			fmt.Println("  🔗 add link(s):")
+			for _, l := range proposed.Links[len(it.Todo.Links):] {
+				fmt.Println("    - " + l)
+			}
 		}
-
-		switch result.Classification {
-		case ai.ClassificationLogNote:
-			text := result.LogText
-			if text == "" {
-				text = remainder
-			}
-			if text == "" {
-				text = "referenced " + strings.Join(links, ", ")
-			}
-			date := today
-			if v := validAIDate(result.Date); v != "" {
-				date = v
-			}
-			proposed.Log = append(append([]model.LogEntry{}, it.Todo.Log...), model.LogEntry{Date: date, Text: text})
-			summary = fmt.Sprintf("append log note (%s): %s", date, text)
-		case ai.ClassificationBodyAddition:
-			addition := result.BodyAddition
-			if addition == "" {
-				addition = remainder
-			}
-			proposed.Body = strings.TrimRight(it.Todo.Body, "\n") + "\n\n" + addition
-			summary = "append to body: " + addition
-		case ai.ClassificationCategoryChange:
-			proposed.Categories = applyCategoryChange(it.Todo.Categories, result.CategoriesAdd, result.CategoriesRemove)
-			summary = "categories -> " + formatCatsInline(proposed.Categories)
-		case ai.ClassificationCloseItem:
-			date := today
-			if v := validAIDate(result.Date); v != "" {
-				date = v
-			}
-			proposed.Status = "closed"
-			proposed.Closed = date
-			summary = fmt.Sprintf("close as of %s", date)
-		default:
-			return fmt.Errorf("unrecognized AI classification %q", result.Classification)
+	}
+	applyEdit := func(_ int, instruction string) {
+		if _, err := aiEditCard(ctx, s, &proposed, instruction, noFetch); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  edit failed: %v\n", err)
 		}
 	}
 
-	fmt.Printf("✏️  Proposed edit to %s — %s:\n", it.Todo.ID, it.Todo.Title)
-	if summary != "" {
-		fmt.Println("  " + summary)
-	}
-	if len(links) > 0 {
-		fmt.Println("  🔗 add link(s):")
-		for _, l := range links {
-			fmt.Println("    - " + l)
-		}
-	}
-	fmt.Print("💾 Apply? [y/N] ")
-	if !readYesNo() {
+	if !confirmLoop([]*model.Todo{&proposed}, "💾 Apply?", render, applyEdit) {
 		fmt.Println("❌ Aborted — nothing changed.")
 		return nil
 	}
@@ -139,30 +81,148 @@ func Edit(ctx context.Context, s *store.Store, query, change string, noFetch boo
 	return nil
 }
 
-// applyCategoryChange returns existing with remove entries dropped and add
-// entries appended, case-insensitively deduped.
-func applyCategoryChange(existing, add, remove []string) []string {
-	removeSet := map[string]bool{}
-	for _, r := range remove {
-		removeSet[strings.ToLower(r)] = true
+// aiEditCard asks the AI to apply a freeform instruction to proposed,
+// mutating it in place, and returns human-readable lines describing what
+// changed (see diffCard). Links are extracted and appended mechanically —
+// never via the AI schema, which covers title/status/closed/categories/
+// body/log. Returns an error (leaving proposed untouched) if instruction
+// has no text and no links.
+func aiEditCard(ctx context.Context, s *store.Store, proposed *model.Todo, instruction string, noFetch bool) ([]string, error) {
+	links, remainder := ai.ExtractLinks(instruction)
+	remainder = strings.TrimSpace(remainder)
+	if remainder == "" && len(links) == 0 {
+		return nil, fmt.Errorf("nothing to change: input contained no text and no links")
 	}
-	seen := map[string]bool{}
-	var out []string
-	for _, c := range existing {
-		if removeSet[strings.ToLower(c)] {
-			continue
+
+	before := *proposed
+	refs := github.DetectRefs(links)
+
+	if len(links) > 0 {
+		proposed.Links = append(append([]string{}, proposed.Links...), links...)
+	}
+
+	// A bare GitHub link (no other words) still calls the AI so its summary
+	// lands as a dated log note, not just a URL in Links. A non-GitHub link
+	// with no other text skips the AI entirely, as before.
+	if remainder != "" || len(refs) > 0 {
+		apiKey, err := s.APIKey()
+		if err != nil {
+			return nil, err
 		}
-		key := strings.ToLower(c)
-		if !seen[key] {
-			seen[key] = true
-			out = append(out, c)
+		client := ai.NewClient(apiKey)
+		items, _ := s.List()
+		existingCats := store.AllCategories(items)
+		today := time.Now().Format("2006-01-02")
+
+		reference := buildReference(ctx, links, noFetch)
+		instr := remainder
+		if instr == "" {
+			instr = noInstructionPlaceholder
+		}
+
+		result, err := ai.ParseCardEdit(ctx, client, proposed, existingCats, today, instr, reference)
+		if err != nil {
+			return nil, fmt.Errorf("asking the AI to edit the card: %w", err)
+		}
+		if result.Status != "open" && result.Status != "closed" {
+			return nil, fmt.Errorf("AI returned unrecognized status %q", result.Status)
+		}
+
+		proposed.Title = result.Title
+		proposed.Status = result.Status
+		if result.Status == "closed" {
+			proposed.Closed = validAIDate(result.Closed)
+			if proposed.Closed == "" {
+				proposed.Closed = today
+			}
+		} else {
+			proposed.Closed = "" // mechanical safety net regardless of what the AI sent
+		}
+		proposed.Categories = result.Categories
+		proposed.Body = result.Body
+		proposed.Log = nil
+		for _, l := range result.Log {
+			proposed.Log = append(proposed.Log, model.LogEntry{Date: l.Date, Text: l.Text})
 		}
 	}
-	for _, a := range add {
-		key := strings.ToLower(a)
-		if !seen[key] {
-			seen[key] = true
-			out = append(out, a)
+
+	return diffCard(&before, proposed), nil
+}
+
+// diffCard reports human-readable lines describing what changed between
+// old and new: title, status/closed, categories, body, and log
+// additions/removals. Links are deliberately not covered here — callers
+// that add links mechanically report that separately.
+func diffCard(old, new *model.Todo) []string {
+	var lines []string
+	if old.Title != new.Title {
+		lines = append(lines, fmt.Sprintf("title: %q -> %q", old.Title, new.Title))
+	}
+	switch {
+	case old.Status != new.Status && new.Status == "closed":
+		lines = append(lines, fmt.Sprintf("status -> closed (as of %s)", new.Closed))
+	case old.Status != new.Status:
+		lines = append(lines, "status -> open (reopened)")
+	case old.Closed != new.Closed:
+		lines = append(lines, fmt.Sprintf("closed date -> %s", new.Closed))
+	}
+	if added, removed := diffCategories(old.Categories, new.Categories); len(added)+len(removed) > 0 {
+		var parts []string
+		if len(added) > 0 {
+			parts = append(parts, "+"+strings.Join(added, ", +"))
+		}
+		if len(removed) > 0 {
+			parts = append(parts, "-"+strings.Join(removed, ", -"))
+		}
+		lines = append(lines, "categories: "+strings.Join(parts, ", "))
+	}
+	if old.Body != new.Body {
+		lines = append(lines, "body -> "+truncateForDisplay(new.Body, 300))
+	}
+	for _, l := range logEntriesNotIn(new.Log, old.Log) {
+		lines = append(lines, fmt.Sprintf("log + %s: %s", l.Date, l.Text))
+	}
+	for _, l := range logEntriesNotIn(old.Log, new.Log) {
+		lines = append(lines, fmt.Sprintf("log - %s: %s", l.Date, l.Text))
+	}
+	return lines
+}
+
+// diffCategories reports which categories were added/removed between old
+// and new, case-insensitively (matching the store's category-dedup
+// convention).
+func diffCategories(old, new []string) (added, removed []string) {
+	oldSet := map[string]bool{}
+	for _, c := range old {
+		oldSet[strings.ToLower(c)] = true
+	}
+	newSet := map[string]bool{}
+	for _, c := range new {
+		newSet[strings.ToLower(c)] = true
+	}
+	for _, c := range new {
+		if !oldSet[strings.ToLower(c)] {
+			added = append(added, c)
+		}
+	}
+	for _, c := range old {
+		if !newSet[strings.ToLower(c)] {
+			removed = append(removed, c)
+		}
+	}
+	return added, removed
+}
+
+// logEntriesNotIn returns the entries of a that don't exactly appear in b.
+func logEntriesNotIn(a, b []model.LogEntry) []model.LogEntry {
+	inB := make(map[model.LogEntry]bool, len(b))
+	for _, e := range b {
+		inB[e] = true
+	}
+	var out []model.LogEntry
+	for _, e := range a {
+		if !inB[e] {
+			out = append(out, e)
 		}
 	}
 	return out

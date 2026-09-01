@@ -1,6 +1,6 @@
 // Package ai wraps the official Anthropic Go SDK for the handful of
-// forced-tool-use calls this CLI makes. See parse.go for the specific
-// operations (ParseAdd, ParseEdit, DraftWeekly).
+// forced-tool-use calls this CLI makes. See parse.go and card_edit.go for
+// the specific operations (ParseAdd, ParseCardEdit, DraftWeekly).
 package ai
 
 import (
@@ -65,10 +65,19 @@ func (t tool) toToolParam() anthropic.ToolUnionParam {
 // be empty. This is the shape every parse.go operation is built on: one
 // tool schema per operation, forced, so the response is deterministic
 // JSON rather than free text that needs to be scraped out of a text block.
+// It caps the response at 1024 output tokens; use CallToolMax for
+// operations that may need to echo back more content than that.
 func (c *Client) CallTool(ctx context.Context, system, userText string, t tool) (json.RawMessage, error) {
+	return c.CallToolMax(ctx, system, userText, t, 1024)
+}
+
+// CallToolMax is CallTool with an explicit output token cap, for
+// operations (like ParseCardEdit) that may need to echo back more content
+// than CallTool's default budget allows.
+func (c *Client) CallToolMax(ctx context.Context, system, userText string, t tool, maxTokens int64) (json.RawMessage, error) {
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(Model),
-		MaxTokens: 1024,
+		MaxTokens: maxTokens,
 		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(userText))},
 		Tools:     []anthropic.ToolUnionParam{t.toToolParam()},
 		ToolChoice: anthropic.ToolChoiceUnionParam{
