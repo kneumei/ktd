@@ -153,7 +153,7 @@ func FormatContext(fs []Fetched) string {
 		if f.Kind == "pr" {
 			label = "PR"
 		}
-		fmt.Fprintf(&b, "%s #%s (%s) %q", label, f.Number, strings.ToLower(f.State), f.Title)
+		fmt.Fprintf(&b, "%s #%s in %s/%s (%s) %q", label, f.Number, f.Owner, f.Repo, strings.ToLower(f.State), f.Title)
 		if f.Author != "" {
 			fmt.Fprintf(&b, " by %s", f.Author)
 		}

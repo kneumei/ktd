@@ -45,7 +45,7 @@ const addSystemPrompt = `You help maintain a personal work-todo tracker. Given f
 - "categories": zero or more freeform theme tags that apply, inferred only from what the text implies — never invent a category with no basis in the text. When an existing category clearly applies, reuse its exact casing rather than creating a near-duplicate.
 - "date": only if the text explicitly states a date the item applies to (absolute like "2026-07-25", or relative like "yesterday", "last Monday"), resolve it to YYYY-MM-DD using today's date, which is %s. Omit this field entirely if no date is stated. Never leave the resolved date sitting inside "title" — strip it out.
 
-When a "Referenced GitHub items" block is present: if the user's own text is descriptive (more than just a bare link), prefer their own words for "title" and use the reference only to enrich "body". If the user supplied little or no text of their own, derive both "title" and "body" from the referenced item(s).
+When a "Referenced GitHub items" block is present: if the user's own text is descriptive (more than just a bare link), prefer their own words for "title" and use the reference only to enrich "body". If the user supplied little or no text of their own, derive both "title" and "body" from the referenced item(s). Either way, work the referenced repo's name into "title" (humanize it, e.g. "file-transfer-service" -> "file transfer service") so the item is identifiable at a glance without opening the link — e.g. "Review file transfer service PR #76: Support Destination Overrides".
 
 Existing categories in use: %s
 
