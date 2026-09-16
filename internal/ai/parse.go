@@ -35,14 +35,20 @@ type AddResult struct {
 	Title      string   `json:"title"`
 	Body       string   `json:"body"`
 	Categories []string `json:"categories"`
-	Date       string   `json:"date"`
+	// StatedCategories is the categories the user's own text named
+	// outright, reported separately from the inferred ones so the caller
+	// can enforce "stated wins" itself rather than trusting the model to
+	// hold back. See the addSystemPrompt note on why this is split out.
+	StatedCategories []string `json:"stated_categories"`
+	Date             string   `json:"date"`
 }
 
 const addSystemPrompt = `You help maintain a personal work-todo tracker. Given freeform text describing a task, distill:
 
 - "title": a short, punchy headline (not a full sentence) that names the task.
 - "body": only fill this in when a "Referenced GitHub items" block is given below the text — write a concise 1-2 sentence summary of what the referenced issue(s)/PR(s) are about, to serve as the item's description. Omit this field when no reference block is present (the caller falls back to the user's own text).
-- "categories": zero or more freeform theme tags that apply, inferred only from what the text implies — never invent a category with no basis in the text. When an existing category clearly applies, reuse its exact casing rather than creating a near-duplicate. If the user's own text explicitly names the category/categories the item belongs to (however phrased — "category: x", "under x", "tag as x", "file this under x", etc.), those are authoritative: use exactly those and no others, even if a "Referenced GitHub items" block below suggests additional ones (e.g. from labels or issue content) — don't supplement an explicit category list with inferred ones.
+- "categories": zero or more freeform theme tags that apply, inferred only from what the text implies — never invent a category with no basis in the text. When an existing category clearly applies, reuse its exact casing rather than creating a near-duplicate.
+- "stated_categories": the categories the user's own text names outright, however phrased — "category=mdmd", "category: mdmd", "categor is mdmd", "tag it mdmd", "file this under mdmd", "put it with the compass stuff". Copy the words they used, one entry per category, and leave this empty when they didn't name any. This is a transcription task, not a judgment call: report only what the user's own words state, never a category drawn from a "Referenced GitHub items" block (labels, repo name, issue content) or otherwise inferred — those belong in "categories". When the user states categories they are the complete answer, so the caller uses this list alone and discards "categories" entirely; don't try to merge the two yourself.
 - "date": only if the text explicitly states a date the item applies to (absolute like "2026-07-25", or relative like "yesterday", "last Monday"), resolve it to YYYY-MM-DD using today's date, which is %s. Omit this field entirely if no date is stated. Never leave the resolved date sitting inside "title" — strip it out.
 
 When a "Referenced GitHub items" block is present: if the user's own text is descriptive (more than just a bare link), prefer their own words for "title" and use the reference only to enrich "body". If the user supplied little or no text of their own, derive both "title" and "body" from the referenced item(s). Either way, work the referenced repo's name into "title" (humanize it, e.g. "file-transfer-service" -> "file transfer service") so the item is identifiable at a glance without opening the link — e.g. "Review file transfer service PR #76: Support Destination Overrides".
@@ -70,12 +76,17 @@ var addTool = tool{
 				"items":       map[string]any{"type": "string"},
 				"description": "Zero or more category tags implied by the text.",
 			},
+			"stated_categories": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string"},
+				"description": "The categories the user's own words name outright, copied as written. Empty if they named none. Never inferred, and never taken from referenced GitHub items.",
+			},
 			"date": map[string]any{
 				"type":        "string",
 				"description": "Only if the text explicitly states a date (absolute or relative), resolved to YYYY-MM-DD. Omit otherwise.",
 			},
 		},
-		"required":             []string{"title", "categories"},
+		"required":             []string{"title", "categories", "stated_categories"},
 		"additionalProperties": false,
 	},
 }

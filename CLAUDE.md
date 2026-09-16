@@ -18,9 +18,10 @@ go vet ./...
 go run ./cmd/ktd <args>     # run without building, e.g. go run ./cmd/ktd list
 ```
 
-There are no tests in the repo yet. If you add packages that warrant tests,
-use standard `go test ./...` / `go test ./internal/store -run TestFoo`
-conventions.
+Tests cover the pure, mechanical helpers only (e.g. `internal/commands`'
+category selection) — anything that would need an API call or a real data
+dir is exercised by hand. Use standard `go test ./...` /
+`go test ./internal/store -run TestFoo` conventions.
 
 For manual end-to-end testing without touching the real data directory
 (`%AppData%\kyle-to-do`), set `KTD_DATA_DIR` to point at a scratch directory,
@@ -78,6 +79,13 @@ Package layout (`internal/`):
   on `sdk.Messages.New`); `parse.go` has `ParseAdd`/`DraftWeekly` plus
   deterministic (non-AI) URL extraction via `ExtractLinks`, which is always
   run before handing text to the AI so links don't clutter the prompt.
+  `ParseAdd` returns categories in two separate fields: `categories` (what
+  the AI inferred) and `stated_categories` (what the user's own words named
+  outright, in whatever phrasing). The split exists because a prompt
+  instruction to *not* add extras on top of a stated list didn't hold —
+  transcribing what the user said is a job the model does reliably, so
+  `internal/commands`' `chooseCategories` enforces "stated wins" in Go
+  instead of asking the model to restrain itself.
   `card_edit.go` has `ParseCardEdit`, used by `ktd edit` and the confirm
   screens' `e` loop: it hands the AI the *entire* current card (title,
   status, categories, body, dated log entries) plus a freeform instruction,

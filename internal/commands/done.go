@@ -34,6 +34,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 
 	items, _ := s.List()
 	existingCats := store.AllCategories(items)
+	canon := canonMap(items)
 
 	startID, err := s.NextID()
 	if err != nil {
@@ -76,7 +77,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 			ID:         fmt.Sprintf("%04d", nextIDNum),
 			Title:      result.Title,
 			Status:     "closed",
-			Categories: result.Categories,
+			Categories: chooseCategories(canon, result.StatedCategories, result.Categories),
 			Created:    itemDate,
 			Closed:     itemDate,
 			Links:      links,

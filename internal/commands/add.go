@@ -51,7 +51,7 @@ func Add(ctx context.Context, s *store.Store, text string, noFetch bool) error {
 		ID:         id,
 		Title:      result.Title,
 		Status:     "open",
-		Categories: result.Categories,
+		Categories: chooseCategories(canonMap(items), result.StatedCategories, result.Categories),
 		Created:    created,
 		Links:      links,
 		Body:       body,
