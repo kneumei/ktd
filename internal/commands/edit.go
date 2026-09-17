@@ -105,11 +105,10 @@ func aiEditCard(ctx context.Context, s *store.Store, proposed *model.Todo, instr
 	// lands as a dated log note, not just a URL in Links. A non-GitHub link
 	// with no other text skips the AI entirely, as before.
 	if remainder != "" || len(refs) > 0 {
-		apiKey, err := s.APIKey()
+		client, err := newAIClient(s)
 		if err != nil {
 			return nil, err
 		}
-		client := ai.NewClient(apiKey)
 		items, _ := s.List()
 		existingCats := store.AllCategories(items)
 		today := time.Now().Format("2006-01-02")

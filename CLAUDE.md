@@ -18,9 +18,9 @@ go vet ./...
 go run ./cmd/ktd <args>     # run without building, e.g. go run ./cmd/ktd list
 ```
 
-Tests cover the pure, mechanical helpers only (e.g. `internal/commands`'
-category selection) — anything that would need an API call or a real data
-dir is exercised by hand. Use standard `go test ./...` /
+Tests cover the pure, mechanical parts only (`internal/commands`' category
+selection, and the request shape `internal/ai`'s dials produce) — anything
+that would need an actual API call or a real data dir is exercised by hand. Use standard `go test ./...` /
 `go test ./internal/store -run TestFoo` conventions.
 
 For manual end-to-end testing without touching the real data directory
@@ -61,9 +61,11 @@ Package layout (`internal/`):
   fixed field order, then a freeform body, then an optional `## Log` section
   of `- YYYY-MM-DD: text` bullets. Every write funnels through
   `Serialize`/`Save`, so files are always re-canonicalized regardless of how
-  they were originally formatted. `config.go` resolves the Anthropic API key
-  in order: `KTD_ANTHROPIC_API_KEY` env var → `.env` in cwd → `.env` in the
-  data dir.
+  they were originally formatted. `config.go` resolves every configuration
+  value through one `Setting(name)` path: env var → `.env` in cwd → `.env`
+  in the data dir. `APIKey()` is that lookup plus an error when it misses,
+  since the fuzzy commands can't run without it; the model dials use the
+  plain lookup and fall back to their defaults.
 - **`categories`** — categories are freeform, case-insensitive strings.
   `Build` tallies casing usage across all items and picks the most-used
   exact casing per lowercased category (ties broken alphabetically) as the
@@ -92,8 +94,13 @@ Package layout (`internal/`):
   and the AI returns the *entire* new card state in one forced tool call —
   deliberately not a classification/diff, so the model has full control
   over every editable field rather than the CLI hand-coding each kind of
-  change. Model is Claude Haiku 4.5 (`ai.Model`), chosen for cost/speed on
-  these small extraction tasks.
+  change. `client.go` also holds the three model dials (`Config`): model,
+  effort, and thinking, defaulting to Claude Sonnet 5 at low effort with
+  thinking off. Thinking is set explicitly rather than left unset because
+  the API's default for that field differs by model — omitting it means no
+  thinking on Haiku 4.5 but adaptive thinking on Sonnet 5 — so an unset
+  field would silently change behavior (and latency) the moment the model
+  dial moved.
 - **`commands`** — one function per subcommand, orchestrating the above
   packages. `confirm.go` centralizes the "print proposed item(s), prompt
   y/N/e" pattern shared by every AI-driven write (`add`/`done`/`edit`) —
@@ -119,6 +126,27 @@ trailing `## Log` section holds dated progress bullets.
 
 Commit directly to `main` by default. Don't create a feature branch or open
 a PR for routine commits — only do that if explicitly asked to.
+
+## Configuration
+
+Every dial resolves the same way — env var, then `.env` in the cwd, then
+`.env` in the data dir — so they can all live in one file instead of being
+exported by hand per shell:
+
+| Name | Default | Notes |
+| --- | --- | --- |
+| `KTD_DATA_DIR` | `%AppData%\kyle-to-do` | Env var only (resolved in `store.go` before any `.env` exists). |
+| `KTD_ANTHROPIC_API_KEY` | — | Required by the fuzzy commands. |
+| `KTD_MODEL` | `claude-sonnet-5` | Any model id. |
+| `KTD_EFFORT` | `low` | `low`/`medium`/`high`/`xhigh`/`max`, or `off` to omit `output_config`. |
+| `KTD_THINKING` | `off` | `off` or `adaptive`. |
+
+`KTD_EFFORT` and `KTD_THINKING` exist mainly to keep `KTD_MODEL` usable:
+not every model accepts them (Haiku 4.5 rejects effort outright, and takes
+a token budget rather than adaptive thinking), so moving the model dial can
+mean turning one of the others off alongside it. Bad values are rejected up
+front with the list of valid ones, rather than surfacing as an opaque 400
+partway through an `add`.
 
 ## Conventions worth knowing
 

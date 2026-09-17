@@ -21,11 +21,10 @@ import (
 // date is used (e.g. "closed date is yesterday"), falling back to today.
 // Each item also gets one seeded "## Log" bullet dated the same date.
 func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) error {
-	apiKey, err := s.APIKey()
+	client, err := newAIClient(s)
 	if err != nil {
 		return err
 	}
-	client := ai.NewClient(apiKey)
 
 	closedDate, err := resolveAsOfDate(asOf)
 	if err != nil {
