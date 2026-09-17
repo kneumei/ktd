@@ -21,11 +21,10 @@ import (
 // date is used (e.g. "closed date is yesterday"), falling back to today.
 // Each item also gets one seeded "## Log" bullet dated the same date.
 func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) error {
-	apiKey, err := s.APIKey()
+	client, err := newAIClient(s)
 	if err != nil {
 		return err
 	}
-	client := ai.NewClient(apiKey)
 
 	closedDate, err := resolveAsOfDate(asOf)
 	if err != nil {
@@ -34,6 +33,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 
 	items, _ := s.List()
 	existingCats := store.AllCategories(items)
+	canon := canonMap(items)
 
 	startID, err := s.NextID()
 	if err != nil {
@@ -76,7 +76,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 			ID:         fmt.Sprintf("%04d", nextIDNum),
 			Title:      result.Title,
 			Status:     "closed",
-			Categories: result.Categories,
+			Categories: chooseCategories(canon, result.StatedCategories, result.Categories),
 			Created:    itemDate,
 			Closed:     itemDate,
 			Links:      links,

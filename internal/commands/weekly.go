@@ -91,11 +91,10 @@ func Weekly(ctx context.Context, s *store.Store, weekOf string, noColor bool) er
 		joinOrNone(lastLines), joinOrNone(thisLines),
 	)
 
-	apiKey, err := s.APIKey()
+	client, err := newAIClient(s)
 	if err != nil {
 		return err
 	}
-	client := ai.NewClient(apiKey)
 	result, err := ai.DraftWeekly(ctx, client, summary)
 	if err != nil {
 		return fmt.Errorf("asking the AI to draft the report: %w", err)
