@@ -26,7 +26,7 @@ func Add(ctx context.Context, s *store.Store, text string, noFetch bool) error {
 	today := time.Now().Format("2006-01-02")
 	links, remainder := ai.ExtractLinks(text)
 	reference := buildReference(ctx, links, noFetch)
-	result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder, reference)
+	result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder, reference, false)
 	if err != nil {
 		return fmt.Errorf("asking the AI to parse the item: %w", err)
 	}

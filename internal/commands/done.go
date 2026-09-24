@@ -55,7 +55,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 
 		links, remainder := ai.ExtractLinks(line)
 		reference := buildReference(ctx, links, noFetch)
-		result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder, reference)
+		result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder, reference, true)
 		if err != nil {
 			return fmt.Errorf("asking the AI to parse %q: %w", line, err)
 		}

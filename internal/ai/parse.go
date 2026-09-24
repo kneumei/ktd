@@ -22,7 +22,9 @@ func ExtractLinks(text string) (links []string, remainder string) {
 	remainder = urlRe.ReplaceAllStringFunc(text, func(url string) string {
 		trimmed := strings.TrimRight(url, ".,;:!?)]}")
 		links = append(links, trimmed)
-		return ""
+		// Keep the trimmed punctuation: "review <url>, category: x" must not
+		// collapse to "review category: x".
+		return url[len(trimmed):]
 	})
 	remainder = strings.Join(strings.Fields(remainder), " ")
 	return links, remainder
@@ -51,7 +53,9 @@ const addSystemPrompt = `You help maintain a personal work-todo tracker. Given f
 - "stated_categories": the categories the user's own text names outright, however phrased — "category=mdmd", "category: mdmd", "categor is mdmd", "tag it mdmd", "file this under mdmd", "put it with the compass stuff". Copy the words they used, one entry per category, and leave this empty when they didn't name any. This is a transcription task, not a judgment call: report only what the user's own words state, never a category drawn from a "Referenced GitHub items" block (labels, repo name, issue content) or otherwise inferred — those belong in "categories". When the user states categories they are the complete answer, so the caller uses this list alone and discards "categories" entirely; don't try to merge the two yourself.
 - "date": only if the text explicitly states a date the item applies to (absolute like "2026-07-25", or relative like "yesterday", "last Monday"), resolve it to YYYY-MM-DD using today's date, which is %s. Omit this field entirely if no date is stated. Never leave the resolved date sitting inside "title" — strip it out.
 
-When a "Referenced GitHub items" block is present: if the user's own text is descriptive (more than just a bare link), prefer their own words for "title" and use the reference only to enrich "body". If the user supplied little or no text of their own, derive both "title" and "body" from the referenced item(s). Either way, work the referenced repo's name into "title" (humanize it, e.g. "file-transfer-service" -> "file transfer service") so the item is identifiable at a glance without opening the link — e.g. "File transfer service PR #76: Support Destination Overrides". Don't guess the user's relationship to the referenced item: only frame the title as reviewing, implementing, testing, etc. when the user's own text says so — a bare link gets a neutral title naming the item itself.
+When a "Referenced GitHub items" block is present: if the user's own text is descriptive (more than just a bare link), prefer their own words for "title" and use the reference only to enrich "body". If the user supplied little or no text of their own, derive both "title" and "body" from the referenced item(s). Either way, work the referenced repo's name into "title" (humanize it, e.g. "file-transfer-service" -> "file transfer service") so the item is identifiable at a glance without opening the link — e.g. "File transfer service PR #76: Support Destination Overrides".
+
+The user's relationship to a referenced item comes only from their own words. If their text names an action — even a single word like "review", "implement", "test", "deploy" — lead the title with it, e.g. "%s file transfer service PR #76: Support Destination Overrides". If it names none, never guess one: a bare link gets a neutral title naming the item itself.%s
 
 Existing categories in use: %s
 
@@ -97,9 +101,14 @@ var addTool = tool{
 // "yesterday". Callers should run ExtractLinks first and pass the
 // link-stripped remainder as text. reference, if non-empty, is a formatted
 // block of fetched GitHub issue/PR content (see internal/github) appended
-// to the user message as extra context — pass "" when there's none.
-func ParseAdd(ctx context.Context, c *Client, existingCategories []string, today, text, reference string) (AddResult, error) {
-	system := fmt.Sprintf(addSystemPrompt, today, formatCategoryList(existingCategories))
+// to the user message as extra context — pass "" when there's none. done
+// marks `ktd done` input, whose titles record finished work in past tense.
+func ParseAdd(ctx context.Context, c *Client, existingCategories []string, today, text, reference string, done bool) (AddResult, error) {
+	verb, tense := "Review", ""
+	if done {
+		verb, tense = "Reviewed", ` This item records work already finished, so put the action in past tense ("review" -> "Reviewed").`
+	}
+	system := fmt.Sprintf(addSystemPrompt, today, verb, tense, formatCategoryList(existingCategories))
 	raw, err := c.CallTool(ctx, system, withReference(text, reference), addTool)
 	if err != nil {
 		return AddResult{}, err
