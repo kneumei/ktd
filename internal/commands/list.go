@@ -128,10 +128,8 @@ func listSince(items []store.Item, opts ListOptions, canon categories.CanonicalM
 	var activity []sinceActivity
 	for _, it := range items {
 		t := it.Todo
-		if opts.Status != "all" && t.Status != opts.Status {
-			continue
-		}
-		if opts.Category != "" && !hasCategorySubstring(t.Categories, opts.Category) {
+		matches, _ := matchesListFilters(t, opts)
+		if !matches {
 			continue
 		}
 
@@ -180,11 +178,12 @@ func listSince(items []store.Item, opts ListOptions, canon categories.CanonicalM
 		for _, e := range a.events {
 			counts[e.kind]++
 		}
+		_, titleMatched := matchesListFilters(a.it.Todo, opts)
 		if opts.Detail {
-			writeItemVerbose(a.it.Todo, canon, useColor, false, today)
+			writeItemVerbose(a.it.Todo, canon, useColor, titleMatched, today)
 			continue
 		}
-		rows = append(rows, buildRow(a.it.Todo, canon, false))
+		rows = append(rows, buildRow(a.it.Todo, canon, titleMatched))
 	}
 	printRows(rows, useColor)
 	fmt.Println()
@@ -214,35 +213,16 @@ func dayCount(days int) string {
 
 func listNormal(items []store.Item, opts ListOptions, canon categories.CanonicalMap, useColor bool, today time.Time) error {
 	var filtered []store.Item
+	titleMatched := map[string]bool{}
 	for _, it := range items {
-		if opts.Status != "all" && it.Todo.Status != opts.Status {
+		matches, titleMatches := matchesListFilters(it.Todo, opts)
+		if !matches {
 			continue
 		}
-		if opts.Category != "" {
-			if !hasCategorySubstring(it.Todo.Categories, opts.Category) {
-				continue
-			}
-		}
 		filtered = append(filtered, it)
+		titleMatched[it.Todo.ID] = titleMatches
 	}
 	distinctCount := len(filtered)
-
-	titleMatched := map[string]bool{}
-	if opts.Search != "" {
-		needle := strings.ToLower(opts.Search)
-		var searched []store.Item
-		for _, it := range filtered {
-			haystack := strings.ToLower(it.Todo.Title + " " + strings.Join(it.Todo.Categories, " ") + " " + it.Todo.Body)
-			if strings.Contains(haystack, needle) {
-				searched = append(searched, it)
-				if strings.Contains(strings.ToLower(it.Todo.Title), needle) {
-					titleMatched[it.Todo.ID] = true
-				}
-			}
-		}
-		filtered = searched
-		distinctCount = len(filtered)
-	}
 
 	// Every sort produces the same flat, column-aligned listing — only the
 	// order differs. Items with several categories appear once, not once
@@ -294,6 +274,26 @@ func listNormal(items []store.Item, opts ListOptions, canon categories.Canonical
 	}
 	fmt.Println(colorize(useColor, colorGray, "📊 "+footer))
 	return nil
+}
+
+// matchesListFilters applies every narrowing option shared by the normal and
+// --since views. The boolean result also reports whether the search matched the
+// title, which callers use for highlighting.
+func matchesListFilters(t *model.Todo, opts ListOptions) (matches, titleMatched bool) {
+	if opts.Status != "all" && t.Status != opts.Status {
+		return false, false
+	}
+	if opts.Category != "" && !hasCategorySubstring(t.Categories, opts.Category) {
+		return false, false
+	}
+	if opts.Search == "" {
+		return true, false
+	}
+
+	needle := strings.ToLower(opts.Search)
+	titleMatched = strings.Contains(strings.ToLower(t.Title), needle)
+	haystack := strings.ToLower(t.Title + " " + strings.Join(t.Categories, " ") + " " + t.Body)
+	return strings.Contains(haystack, needle), titleMatched
 }
 
 // categorySortKey orders an item within the default category sort: by its
