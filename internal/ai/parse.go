@@ -180,6 +180,41 @@ var weeklyTool = tool{
 	},
 }
 
+// UnmarshalJSON accepts either section as a JSON-encoded string, which the
+// model occasionally emits instead of a real array.
+func (r *WeeklyResult) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Last json.RawMessage `json:"last"`
+		This json.RawMessage `json:"this"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var err error
+	if r.Last, err = decodeSummaries(raw.Last); err != nil {
+		return fmt.Errorf("last: %w", err)
+	}
+	if r.This, err = decodeSummaries(raw.This); err != nil {
+		return fmt.Errorf("this: %w", err)
+	}
+	return nil
+}
+
+func decodeSummaries(raw json.RawMessage) ([]WeeklyItemSummary, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var encoded string
+	if json.Unmarshal(raw, &encoded) == nil {
+		raw = json.RawMessage(encoded)
+	}
+	var items []WeeklyItemSummary
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 // DraftWeekly distills the Last/This candidate items into short summary
 // lines given a plain-text summary of the relevant items (closed-this-week
 // items and open items with in-week log activity, plus open items
