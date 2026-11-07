@@ -112,7 +112,11 @@ Package layout (`internal/`):
   items (`ktd done` on multi-line input) it first asks which item number to
   edit. `resolve.go` (in this package) wraps `internal/resolve` to also
   print match/candidate/no-match diagnostics to stdout, shared by
-  `close`/`context`/`edit`.
+  `close`/`context`/`edit`. `existing.go` checks `add`/`done` input links
+  against stored items (GitHub issue/PR links compared by
+  owner/repo/kind/number) and, on a match, asks whether to update that
+  item (via the same `editItem` flow `ktd edit` uses; `done` also asks
+  the AI to close it), add a new item anyway, or do nothing.
 
 ## Data format
 

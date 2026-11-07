@@ -41,24 +41,31 @@ func Edit(ctx context.Context, s *store.Store, query, change string, noFetch boo
 	if !ok {
 		return nil
 	}
+	return editItem(ctx, s, it.Todo, change, noFetch)
+}
 
-	proposed := *it.Todo // shallow copy — safe since all fields we mutate are reassigned, not mutated in place
+// editItem applies a freeform change to current via the AI, then shows the
+// diff and drives the y/N/e confirm loop before saving. Shared by `ktd
+// edit` and by add/done when the user opts to update an item that already
+// has the link they gave.
+func editItem(ctx context.Context, s *store.Store, current *model.Todo, change string, noFetch bool) error {
+	proposed := *current // shallow copy — safe since all fields we mutate are reassigned, not mutated in place
 	if _, err := aiEditCard(ctx, s, &proposed, change, noFetch); err != nil {
 		return err
 	}
 
 	render := func() {
-		fmt.Printf("✏️  Proposed edit to %s — %s:\n", it.Todo.ID, it.Todo.Title)
-		lines := diffCard(it.Todo, &proposed)
+		fmt.Printf("✏️  Proposed edit to %s — %s:\n", current.ID, current.Title)
+		lines := diffCard(current, &proposed)
 		if len(lines) == 0 {
 			fmt.Println("  (no field changes)")
 		}
 		for _, l := range lines {
 			fmt.Println("  " + l)
 		}
-		if len(proposed.Links) > len(it.Todo.Links) {
+		if len(proposed.Links) > len(current.Links) {
 			fmt.Println("  🔗 add link(s):")
-			for _, l := range proposed.Links[len(it.Todo.Links):] {
+			for _, l := range proposed.Links[len(current.Links):] {
 				fmt.Println("    - " + l)
 			}
 		}
@@ -97,9 +104,13 @@ func aiEditCard(ctx context.Context, s *store.Store, proposed *model.Todo, instr
 	before := *proposed
 	refs := github.DetectRefs(links)
 
-	if len(links) > 0 {
-		proposed.Links = append(append([]string{}, proposed.Links...), links...)
+	newLinks := proposed.Links
+	for _, l := range links {
+		if !hasLink(newLinks, l) {
+			newLinks = append(append([]string{}, newLinks...), l)
+		}
 	}
+	proposed.Links = newLinks
 
 	// A bare GitHub link (no other words) still calls the AI so its summary
 	// lands as a dated log note, not just a URL in Links. A non-GitHub link

@@ -26,6 +26,15 @@ func Add(ctx context.Context, s *store.Store, text string, noFetch bool) error {
 
 	today := time.Now().Format("2006-01-02")
 	links, remainder := ai.ExtractLinks(text)
+	if existing := findByLinks(items, links); existing != nil {
+		switch askExisting(existing) {
+		case choiceUpdate:
+			return editItem(ctx, s, existing, text, noFetch)
+		case choiceSkip:
+			fmt.Println("❌ Skipped — nothing written.")
+			return nil
+		}
+	}
 	reference := buildReference(ctx, links, noFetch)
 	result, err := ai.ParseAdd(ctx, client, allowed, today, remainder, reference, false)
 	if err != nil {

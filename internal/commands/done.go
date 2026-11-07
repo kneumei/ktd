@@ -48,6 +48,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 	today := time.Now().Format("2006-01-02")
 
 	var todos []*model.Todo
+	handledExisting := 0
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -55,6 +56,25 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 		}
 
 		links, remainder := ai.ExtractLinks(line)
+		if existing := findByLinks(items, links); existing != nil {
+			switch askExisting(existing) {
+			case choiceUpdate:
+				change := line + "\n(This work is finished: close the item"
+				if asOf != "" {
+					change += " as of " + closedDate
+				}
+				change += ".)"
+				if err := editItem(ctx, s, existing, change, noFetch); err != nil {
+					return err
+				}
+				handledExisting++
+				continue
+			case choiceSkip:
+				fmt.Println("⏭️  Skipped.")
+				handledExisting++
+				continue
+			}
+		}
 		reference := buildReference(ctx, links, noFetch)
 		result, err := ai.ParseAdd(ctx, client, allowed, today, remainder, reference, true)
 		if err != nil {
@@ -90,6 +110,9 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 	}
 
 	if len(todos) == 0 {
+		if handledExisting > 0 {
+			return nil
+		}
 		fmt.Println("🤷 Nothing to do — no non-blank lines in input.")
 		return nil
 	}
