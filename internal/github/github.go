@@ -59,6 +59,16 @@ func DetectRefs(links []string) []Ref {
 	return refs
 }
 
+// RepoFromLinks returns the repo name (without owner) for the first GitHub
+// issue/PR link among links, or "" when there is none.
+func RepoFromLinks(links []string) string {
+	refs := DetectRefs(links)
+	if len(refs) == 0 {
+		return ""
+	}
+	return refs[0].Repo
+}
+
 // ShortRef renders a GitHub issue/PR URL as "<owner>/<repo>/pulls/<number>"
 // or "<owner>/<repo>/issues/<number>" so the repo context isn't lost the way
 // a bare URL loses it at a glance. Returns url unchanged if it isn't a

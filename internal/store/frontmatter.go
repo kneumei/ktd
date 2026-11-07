@@ -30,6 +30,7 @@ type frontmatterYAML struct {
 	Created    string   `yaml:"created"`
 	Closed     string   `yaml:"closed"`
 	Plan       string   `yaml:"plan"`
+	Repo       string   `yaml:"repo"`
 	Links      []string `yaml:"links"`
 }
 
@@ -53,6 +54,7 @@ func ParseFile(raw string) (*model.Todo, error) {
 		Created:    fm.Created,
 		Closed:     fm.Closed,
 		Plan:       fm.Plan,
+		Repo:       fm.Repo,
 		Links:      fm.Links,
 	}
 
@@ -128,6 +130,10 @@ func Serialize(t *model.Todo) (string, error) {
 	addScalar("created", t.Created)
 	addScalar("closed", t.Closed)
 	addScalar("plan", t.Plan)
+	// Omitted when empty so existing repo-less files don't churn on save.
+	if t.Repo != "" {
+		addScalar("repo", t.Repo)
+	}
 	addSeq("links", t.Links, false)
 
 	var buf bytes.Buffer

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ktd/internal/ai"
+	"ktd/internal/github"
 	"ktd/internal/model"
 	"ktd/internal/store"
 )
@@ -79,6 +80,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 			Categories: chooseCategories(canon, allowed, result.StatedCategories, result.Categories),
 			Created:    itemDate,
 			Closed:     itemDate,
+			Repo:       github.RepoFromLinks(links),
 			Links:      links,
 			Body:       body,
 			Log:        []model.LogEntry{{Date: itemDate, Text: result.Title}},

@@ -53,6 +53,9 @@ func printItems(verb string, items []*model.Todo) {
 		if t.Status == "closed" {
 			fmt.Printf("  Closed:     %s\n", t.Closed)
 		}
+		if t.Repo != "" {
+			fmt.Printf("  Repo:       %s\n", t.Repo)
+		}
 		if len(t.Links) > 0 {
 			fmt.Println("  Links:")
 			for _, l := range t.Links {

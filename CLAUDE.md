@@ -121,7 +121,9 @@ cosmetic only — the id is identity, and `Save` deletes the old file if the
 title/slug changed). Frontmatter fields: `id`, `title`, `status`
 (`open`/`closed`), `categories` (flow-style YAML list), `created`, `closed`,
 `plan` (currently only meaningful value is `this-week`, read by `ktd
-weekly`), `links` (one per line). Body is freeform markdown; an optional
+weekly`), `repo` (optional repo name without the owner, set mechanically
+by `add`/`done` from the first GitHub issue/PR link; omitted when empty),
+`links` (one per line). Body is freeform markdown; an optional
 trailing `## Log` section holds dated progress bullets.
 
 ## Git workflow

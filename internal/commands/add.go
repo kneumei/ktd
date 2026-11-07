@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"ktd/internal/ai"
+	"ktd/internal/github"
 	"ktd/internal/model"
 	"ktd/internal/store"
 )
@@ -52,6 +53,7 @@ func Add(ctx context.Context, s *store.Store, text string, noFetch bool) error {
 		Status:     "open",
 		Categories: chooseCategories(canonMap(items), allowed, result.StatedCategories, result.Categories),
 		Created:    created,
+		Repo:       github.RepoFromLinks(links),
 		Links:      links,
 		Body:       body,
 	}

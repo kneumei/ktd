@@ -319,6 +319,7 @@ type listRow struct {
 	id         string
 	emoji      string
 	date       string
+	repo       string
 	category   string
 	title      string
 	dateColor  string
@@ -337,6 +338,7 @@ func buildRow(t *model.Todo, canon categories.CanonicalMap, matched bool) listRo
 	row := listRow{
 		id:       t.ID,
 		date:     lastModified(t),
+		repo:     t.Repo,
 		category: canon.FormatList(t.Categories),
 		title:    t.Title,
 	}
@@ -353,24 +355,32 @@ func buildRow(t *model.Todo, canon categories.CanonicalMap, matched bool) listRo
 	return row
 }
 
-// printRows writes rows as a table, padding the category column to the
-// widest one present so the titles line up.
+// printRows writes rows as a table, padding the repo and category columns
+// to the widest value present so the titles line up. The repo column is
+// dropped entirely when no row has one.
 func printRows(rows []listRow, useColor bool) {
-	catWidth := 0
+	repoWidth, catWidth := 0, 0
 	for _, r := range rows {
-		if w := utf8.RuneCountInString(r.category); w > catWidth {
-			catWidth = w
-		}
+		repoWidth = max(repoWidth, utf8.RuneCountInString(r.repo))
+		catWidth = max(catWidth, utf8.RuneCountInString(r.category))
 	}
 	for _, r := range rows {
-		cat := r.category + strings.Repeat(" ", catWidth-utf8.RuneCountInString(r.category))
-		fmt.Printf("%s %s %s %s  %s\n",
+		repo := ""
+		if repoWidth > 0 {
+			repo = colorize(useColor, colorCyan, padRight(r.repo, repoWidth)) + " "
+		}
+		fmt.Printf("%s %s %s %s%s  %s\n",
 			colorize(useColor, colorDarkGray, r.id),
 			r.emoji,
 			colorize(useColor, r.dateColor, r.date),
-			colorize(useColor, colorDarkGray, cat),
+			repo,
+			colorize(useColor, colorDarkGray, padRight(r.category, catWidth)),
 			colorize(useColor, r.titleColor, r.title))
 	}
+}
+
+func padRight(s string, width int) string {
+	return s + strings.Repeat(" ", width-utf8.RuneCountInString(s))
 }
 
 // lastModified is the most recent date an item was touched: created, then
@@ -407,6 +417,9 @@ func writeItemVerbose(t *model.Todo, canon categories.CanonicalMap, useColor, ma
 	}
 	fmt.Println("  🏷️  Categories: " + canon.FormatList(t.Categories))
 	fmt.Println("  📆 Created:  " + t.Created)
+	if t.Repo != "" {
+		fmt.Println("  📦 Repo:     " + colorize(useColor, colorCyan, t.Repo))
+	}
 	if len(t.Links) > 0 {
 		fmt.Println("  🔗 Links:")
 		for _, l := range t.Links {

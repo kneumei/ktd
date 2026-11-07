@@ -10,7 +10,7 @@ type LogEntry struct {
 
 // Todo mirrors the schema documented in the original todo-list project:
 // YAML frontmatter (id, title, status, categories, created, closed, plan,
-// links) followed by a freeform body and an optional "## Log" section.
+// repo, links) followed by a freeform body and an optional "## Log" section.
 type Todo struct {
 	ID         string // 4-digit zero-padded, e.g. "0007"
 	Title      string
@@ -19,6 +19,7 @@ type Todo struct {
 	Created    string // YYYY-MM-DD
 	Closed     string // YYYY-MM-DD, or "" while open
 	Plan       string // "this-week" or ""
+	Repo       string // repo name (no owner) from a GitHub issue/PR link, or ""
 	Links      []string
 	Body       string // freeform description, excluding the "## Log" section
 	Log        []LogEntry
