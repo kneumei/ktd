@@ -21,12 +21,12 @@ func Add(ctx context.Context, s *store.Store, text string, noFetch bool) error {
 	}
 
 	items, _ := s.List()
-	existingCats := store.AllCategories(items)
+	allowed := allowedCategories(s)
 
 	today := time.Now().Format("2006-01-02")
 	links, remainder := ai.ExtractLinks(text)
 	reference := buildReference(ctx, links, noFetch)
-	result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder, reference, false)
+	result, err := ai.ParseAdd(ctx, client, allowed, today, remainder, reference, false)
 	if err != nil {
 		return fmt.Errorf("asking the AI to parse the item: %w", err)
 	}
@@ -50,7 +50,7 @@ func Add(ctx context.Context, s *store.Store, text string, noFetch bool) error {
 		ID:         id,
 		Title:      result.Title,
 		Status:     "open",
-		Categories: chooseCategories(canonMap(items), result.StatedCategories, result.Categories),
+		Categories: chooseCategories(canonMap(items), allowed, result.StatedCategories, result.Categories),
 		Created:    created,
 		Links:      links,
 		Body:       body,

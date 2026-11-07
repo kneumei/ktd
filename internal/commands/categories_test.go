@@ -9,6 +9,7 @@ import (
 
 func TestChooseCategories(t *testing.T) {
 	canon := categories.Build([][]string{{"MDMD", "Consumers"}, {"MDMD"}})
+	allowed := []string{"Cadence", "PacificLife", "MDHD", "ExportDatabase"}
 
 	tests := []struct {
 		name     string
@@ -19,13 +20,23 @@ func TestChooseCategories(t *testing.T) {
 		{
 			name:     "stated wins outright over inferred",
 			stated:   []string{"mdmd"},
-			inferred: []string{"mdmd", "Consumers"},
+			inferred: []string{"Cadence"},
 			want:     []string{"MDMD"},
 		},
 		{
-			name:     "nothing stated falls back to inferred",
+			name:     "nothing stated falls back to first allowed inferred",
+			inferred: []string{"Consumers", "pacificlife", "Cadence"},
+			want:     []string{"PacificLife"},
+		},
+		{
+			name:     "inferred outside the allowed set is dropped",
 			inferred: []string{"Consumers"},
-			want:     []string{"Consumers"},
+			want:     nil,
+		},
+		{
+			name:   "stated allowed category takes the allowed casing",
+			stated: []string{"exportdatabase"},
+			want:   []string{"ExportDatabase"},
 		},
 		{
 			name:   "stated dupes collapse case-insensitively",
@@ -35,14 +46,14 @@ func TestChooseCategories(t *testing.T) {
 		{
 			name:     "unknown stated category keeps its own casing",
 			stated:   []string{"newThing"},
-			inferred: []string{"Consumers"},
+			inferred: []string{"Cadence"},
 			want:     []string{"newThing"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := chooseCategories(canon, tt.stated, tt.inferred)
+			got := chooseCategories(canon, allowed, tt.stated, tt.inferred)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("chooseCategories() = %#v, want %#v", got, tt.want)
 			}

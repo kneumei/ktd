@@ -87,7 +87,9 @@ Package layout (`internal/`):
   instruction to *not* add extras on top of a stated list didn't hold —
   transcribing what the user said is a job the model does reliably, so
   `internal/commands`' `chooseCategories` enforces "stated wins" in Go
-  instead of asking the model to restrain itself.
+  instead of asking the model to restrain itself. Inferred categories are
+  restricted to the `KTD_CATEGORIES` set: the prompt asks for exactly one,
+  and `chooseCategories` keeps only the first inferred value in that set.
   `card_edit.go` has `ParseCardEdit`, used by `ktd edit` and the confirm
   screens' `e` loop: it hands the AI the *entire* current card (title,
   status, categories, body, dated log entries) plus a freeform instruction,
@@ -140,6 +142,7 @@ exported by hand per shell:
 | `KTD_MODEL` | `claude-sonnet-5` | Any model id. |
 | `KTD_EFFORT` | `low` | `low`/`medium`/`high`/`xhigh`/`max`, or `off` to omit `output_config`. |
 | `KTD_THINKING` | `off` | `off` or `adaptive`. |
+| `KTD_CATEGORIES` | `Cadence,PacificLife,MDHD,ExportDatabase` | Comma-separated. `add`/`done` infer exactly one of these unless the user names a category outright. |
 
 `KTD_EFFORT` and `KTD_THINKING` exist mainly to keep `KTD_MODEL` usable:
 not every model accepts them (Haiku 4.5 rejects effort outright, and takes

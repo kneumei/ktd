@@ -32,7 +32,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 	}
 
 	items, _ := s.List()
-	existingCats := store.AllCategories(items)
+	allowed := allowedCategories(s)
 	canon := canonMap(items)
 
 	startID, err := s.NextID()
@@ -55,7 +55,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 
 		links, remainder := ai.ExtractLinks(line)
 		reference := buildReference(ctx, links, noFetch)
-		result, err := ai.ParseAdd(ctx, client, existingCats, today, remainder, reference, true)
+		result, err := ai.ParseAdd(ctx, client, allowed, today, remainder, reference, true)
 		if err != nil {
 			return fmt.Errorf("asking the AI to parse %q: %w", line, err)
 		}
@@ -76,7 +76,7 @@ func Done(ctx context.Context, s *store.Store, text, asOf string, noFetch bool) 
 			ID:         fmt.Sprintf("%04d", nextIDNum),
 			Title:      result.Title,
 			Status:     "closed",
-			Categories: chooseCategories(canon, result.StatedCategories, result.Categories),
+			Categories: chooseCategories(canon, allowed, result.StatedCategories, result.Categories),
 			Created:    itemDate,
 			Closed:     itemDate,
 			Links:      links,

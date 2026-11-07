@@ -119,7 +119,7 @@ func aiEditCard(ctx context.Context, s *store.Store, proposed *model.Todo, instr
 			instr = noInstructionPlaceholder
 		}
 
-		result, err := ai.ParseCardEdit(ctx, client, proposed, existingCats, today, instr, reference)
+		result, err := ai.ParseCardEdit(ctx, client, proposed, allowedCategories(s), existingCats, today, instr, reference)
 		if err != nil {
 			return nil, fmt.Errorf("asking the AI to edit the card: %w", err)
 		}

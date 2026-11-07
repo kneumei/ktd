@@ -31,8 +31,8 @@ func ExtractLinks(text string) (links []string, remainder string) {
 }
 
 // AddResult is the AI-distilled shape of a freeform `ktd add`/`ktd done`
-// input: a short headline title, an optional body summary, and zero or more
-// categories reusing the existing category set's casing.
+// input: a short headline title, an optional body summary, and a category
+// from the allowed set.
 type AddResult struct {
 	Title      string   `json:"title"`
 	Body       string   `json:"body"`
@@ -49,15 +49,13 @@ const addSystemPrompt = `You help maintain a personal work-todo tracker. Given f
 
 - "title": a short, punchy headline (not a full sentence) that names the task.
 - "body": only fill this in when a "Referenced GitHub items" block is given below the text — write a concise 1-2 sentence summary of what the referenced issue(s)/PR(s) are about, to serve as the item's description. Omit this field when no reference block is present (the caller falls back to the user's own text).
-- "categories": zero or more freeform theme tags that apply, inferred only from what the text implies — never invent a category with no basis in the text. When an existing category clearly applies, reuse its exact casing rather than creating a near-duplicate.
+- "categories": exactly one category, chosen from this fixed list: %s. Pick whichever best fits the text (and any referenced GitHub items), copying its casing exactly. Never return a category outside that list here — a category the user names themselves goes in "stated_categories" instead.
 - "stated_categories": the categories the user's own text names outright, however phrased — "category=mdmd", "category: mdmd", "categor is mdmd", "tag it mdmd", "file this under mdmd", "put it with the compass stuff". Copy the words they used, one entry per category, and leave this empty when they didn't name any. This is a transcription task, not a judgment call: report only what the user's own words state, never a category drawn from a "Referenced GitHub items" block (labels, repo name, issue content) or otherwise inferred — those belong in "categories". When the user states categories they are the complete answer, so the caller uses this list alone and discards "categories" entirely; don't try to merge the two yourself.
 - "date": only if the text explicitly states a date the item applies to (absolute like "2026-07-25", or relative like "yesterday", "last Monday"), resolve it to YYYY-MM-DD using today's date, which is %s. Omit this field entirely if no date is stated. Never leave the resolved date sitting inside "title" — strip it out.
 
 When a "Referenced GitHub items" block is present: if the user's own text is descriptive (more than just a bare link), prefer their own words for "title" and use the reference only to enrich "body". If the user supplied little or no text of their own, derive both "title" and "body" from the referenced item(s). Either way, work the referenced repo's name into "title" (humanize it, e.g. "file-transfer-service" -> "file transfer service") so the item is identifiable at a glance without opening the link — e.g. "File transfer service PR #76: Support Destination Overrides".
 
 The user's relationship to a referenced item comes only from their own words. If their text names an action — even a single word like "review", "implement", "test", "deploy" — lead the title with it, e.g. "%s file transfer service PR #76: Support Destination Overrides". If it names none, never guess one: a bare link gets a neutral title naming the item itself.%s
-
-Existing categories in use: %s
 
 Respond only via the add_item tool.`
 
@@ -78,7 +76,7 @@ var addTool = tool{
 			"categories": map[string]any{
 				"type":        "array",
 				"items":       map[string]any{"type": "string"},
-				"description": "Zero or more category tags implied by the text.",
+				"description": "Exactly one category from the allowed list that best fits the text.",
 			},
 			"stated_categories": map[string]any{
 				"type":        "array",
@@ -103,12 +101,12 @@ var addTool = tool{
 // block of fetched GitHub issue/PR content (see internal/github) appended
 // to the user message as extra context — pass "" when there's none. done
 // marks `ktd done` input, whose titles record finished work in past tense.
-func ParseAdd(ctx context.Context, c *Client, existingCategories []string, today, text, reference string, done bool) (AddResult, error) {
+func ParseAdd(ctx context.Context, c *Client, allowedCategories []string, today, text, reference string, done bool) (AddResult, error) {
 	verb, tense := "Review", ""
 	if done {
 		verb, tense = "Reviewed", ` This item records work already finished, so put the action in past tense ("review" -> "Reviewed").`
 	}
-	system := fmt.Sprintf(addSystemPrompt, today, verb, tense, formatCategoryList(existingCategories))
+	system := fmt.Sprintf(addSystemPrompt, formatCategoryList(allowedCategories), today, verb, tense)
 	raw, err := c.CallTool(ctx, system, withReference(text, reference), addTool)
 	if err != nil {
 		return AddResult{}, err
