@@ -27,7 +27,7 @@ type CardEditResult struct {
 	Title      string         `json:"title"`
 	Status     string         `json:"status"` // "open" or "closed"
 	Closed     string         `json:"closed"` // YYYY-MM-DD, "" iff open
-	Categories []string       `json:"categories"`
+	Categories StringList     `json:"categories"`
 	Body       string         `json:"body"`
 	Log        []CardLogEntry `json:"log"`
 }

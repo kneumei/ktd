@@ -34,15 +34,42 @@ func ExtractLinks(text string) (links []string, remainder string) {
 // input: a short headline title, an optional body summary, and a category
 // from the allowed set.
 type AddResult struct {
-	Title      string   `json:"title"`
-	Body       string   `json:"body"`
-	Categories []string `json:"categories"`
+	Title      string     `json:"title"`
+	Body       string     `json:"body"`
+	Categories StringList `json:"categories"`
 	// StatedCategories is the categories the user's own text named
 	// outright, reported separately from the inferred ones so the caller
 	// can enforce "stated wins" itself rather than trusting the model to
 	// hold back. See the addSystemPrompt note on why this is split out.
-	StatedCategories []string `json:"stated_categories"`
-	Date             string   `json:"date"`
+	StatedCategories StringList `json:"stated_categories"`
+	Date             string     `json:"date"`
+}
+
+// StringList is a []string tool-input field that also accepts the model's
+// occasional malformed forms: a JSON-encoded array string, or a bare string
+// standing in for a single-element list.
+type StringList []string
+
+func (l *StringList) UnmarshalJSON(data []byte) error {
+	var list []string
+	if err := json.Unmarshal(data, &list); err == nil {
+		*l = list
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	s = strings.TrimSpace(s)
+	switch {
+	case s == "":
+		*l = nil
+	case json.Unmarshal([]byte(s), &list) == nil:
+		*l = list
+	default:
+		*l = StringList{s}
+	}
+	return nil
 }
 
 const addSystemPrompt = `You help maintain a personal work-todo tracker. Given freeform text describing a task, distill:
